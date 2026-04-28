@@ -1,88 +1,86 @@
-# View specs — design notes
+---
+title: View specs
+aliases: [view spec, view slot, freeform layout, manual layout, V1, V2, V3]
+tags: [polyp, concept, design]
+---
 
-## What a view spec is
+# View specs
 
-A view spec is a named snapshot of the visual presentation of the graph in
-**freeform (manual) mode**. It stores everything needed to reproduce the
-visual state exactly:
+Three named slots (**V1 / V2 / V3**) for independent freeform layouts of the graph. Only active when [[auto-layout]] is off.
 
-- `positions` — `Map<nodeId, {x, y}>` for every node
-- `pan` — `{x, y}` canvas pan offset
-- `zoom` — zoom level
+## What a spec stores
 
-Three slots exist (`state.viewSpecs[0..2]`). The active slot index is
-`state.activeView` (0-based).
+```js
+{
+  positions: Map<nodeId, {x, y}>,  // per-node world coordinates
+  pan:  { x, y },                  // canvas pan offset
+  zoom: number,                    // zoom level
+}
+```
+
+`state.viewSpecs[0..2]` — `null` until first visited. `state.activeView` (0-based) tracks the current slot.
 
 ## Interaction model
 
-- `v` cycles forward through the three slots (wraps around).
-- The topbar shows three numbered dot-buttons (1 / 2 / 3); clicking one
-  jumps directly to that slot. Both controls are hidden when auto-layout
-  is on, because auto-layout positions are computed and not per-spec.
-- The status bar shows "V1" / "V2" / "V3" when in freeform mode.
+| Action | Effect |
+|--------|--------|
+| `v` | Cycle forward: V1 → V2 → V3 → V1 |
+| Click dot button (topbar) | Jump to that slot directly |
+| Toggle [[auto-layout]] on | Commits current spec, applies computed layout |
+| Toggle [[auto-layout]] off | Restores active spec |
+
+The dot buttons (1 / 2 / 3) and the status bar **V1** indicator are hidden while auto-layout is on.
 
 ## Copy-on-first-visit
 
-An uninitialised slot (`null`) is populated by `captureViewSpec()` from the
-current live state the first time you navigate to it. This means switching to
-a new slot starts as an exact copy of what you were looking at — you diverge
-from there by dragging nodes, panning, or zooming.
-
-The alternative (start blank / all nodes at origin) was rejected because it
-would require the user to immediately lay out every node from scratch, which
-is disorienting when you just want to preserve the current view as a
-reference while exploring a second arrangement.
+> [!INFO] Design decision
+> An uninitialised slot (`null`) is populated by `captureViewSpec()` from the **current live state** the first time you navigate to it. Switching to a new slot starts as an exact copy — you diverge from there by dragging [[nodes]], panning, or zooming.
+>
+> The rejected alternative (start blank / all nodes at origin) would force the user to re-lay-out every node from scratch, which is disorienting when the goal is to explore a second arrangement while preserving the first as a reference.
 
 ## Commit semantics
 
-Specs are committed lazily, not on every drag:
+Specs are **committed lazily** — not on every drag.
 
-- `commitActiveViewSpec()` is called before **leaving** the current slot
-  (either by cycling specs or by switching to auto-layout).
-- On cycle: commit current → change index → apply new spec.
-- On auto-layout ON: commit current → run computed layout.
-- On auto-layout OFF: apply the active spec (which was already committed
-  before auto-layout was entered).
+`commitActiveViewSpec()` is called before leaving the current slot:
 
-Eager commit on every drag would be technically equivalent but costs a full
-`Map` copy per pointer event, and is unnecessary because the spec system
-never reads mid-drag.
+```
+cycle specs:         commit current  →  change index  →  apply new
+auto-layout ON:      commit current  →  applyAutoLayout()
+auto-layout OFF:     applyViewSpec(active)
+```
+
+> [!NOTE] Why lazy?
+> Eager commit on every drag would be technically equivalent but costs a full `Map` copy per pointer event — unnecessary because the spec system never reads mid-drag.
 
 ## Interaction with auto-layout
 
-Auto-layout and view specs are orthogonal. Auto-layout overrides node
-positions with computed values. The view spec system saves and restores
-freeform positions around auto-layout sessions:
+[[auto-layout]] and view specs are orthogonal. Auto-layout overwrites node positions with computed values; view specs save and restore freeform positions around layout sessions.
 
-```
-user presses 'a' (auto ON):
-  commitActiveViewSpec()   ← saves freeform state
-  applyAutoLayout()        ← overwrites node x/y
+> [!IMPORTANT]
+> `commitActiveViewSpec()` is always called **before** `applyAutoLayout()`. This guarantees no freeform state is lost when entering computed layout.
 
-user presses 'a' (auto OFF):
-  applyViewSpec(activeSlot) ← restores freeform state
-```
+This replaces the original `n.freeX / n.freeY` per-node stash, which only supported a single freeform state.
 
-This replaces the original `n.freeX / n.freeY` stash mechanism, which only
-supported a single freeform state. The old `restoreFreeformLayout()` function
-is kept as a dead-code fallback but is no longer reached under normal
-operation.
+## Node lifecycle
 
-## Node creation and deletion
+| Event | Spec behaviour |
+|-------|---------------|
+| Node **created** | Not added to specs until next commit (stays at creation position) |
+| Node **deleted** | Removed from `spec.positions` across all three slots immediately |
 
-- **Creation**: new nodes are placed at computed positions and recorded in
-  `state.nodes`. They are not immediately added to all specs. They appear in
-  a spec when that spec is next committed (on cycle or auto-layout toggle).
-  Until then, they sit at their creation position in every spec — harmless.
-- **Deletion**: `deleteNode` removes the id from `spec.positions` across all
-  three slots to prevent stale position data from resuracing if an id is
-  ever reused.
+> [!NOTE] New-node position across specs
+> A node created in V1 won't appear in V2's position map until V2 is next committed. Until then it sits at its creation position in V2 — which is fine, as it will be snapped into the spec on the next cycle.
 
 ## Future directions
 
-- **Naming specs**: replace the number labels with editable names stored in
-  the spec object.
-- **More slots**: the count (3) is hardcoded in the loop bounds and the dot
-  buttons. To make it dynamic, drive both off a `SPEC_COUNT` constant.
-- **Persistence**: serialise `state.viewSpecs` and `state.activeView` as part
-  of a save-to-disk format (future file I/O work).
+- [ ] **Named slots** — replace number labels with editable names stored in the spec object
+- [ ] **More slots** — `SPEC_COUNT` constant to drive loop bounds and dot buttons
+- [ ] **Persistence** — serialise `state.viewSpecs` + `state.activeView` as part of a save-to-disk format (future file I/O)
+
+## Related
+
+- [[auto-layout]] — commits/restores specs on toggle
+- [[canvas]] — each spec stores pan + zoom
+- [[nodes]] — positions are per-node world coordinates
+- [[keyboard-shortcuts]] — `v` and `a` keys

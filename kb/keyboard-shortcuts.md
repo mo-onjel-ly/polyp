@@ -1,80 +1,82 @@
+---
+title: Keyboard shortcuts
+aliases: [shortcuts, keybindings, hotkeys, keys]
+tags: [polyp, reference]
+---
+
 # Keyboard shortcuts
 
-Shortcuts are active when focus is on the canvas (not inside an inspector
-form field). Inside an inspector field, only `Esc` is intercepted.
+Active when focus is on the [[canvas]] (not inside an [[inspector]] form field). Inside an inspector field, only `Esc` is intercepted.
 
 ## Navigation
 
 | Key | Action |
 |-----|--------|
-| `h` | Move selection left (nearest node in that direction) |
+| `h` | Move selection left |
 | `j` | Move selection down |
 | `k` | Move selection up |
 | `l` | Move selection right |
-| `Enter` | If nothing selected: select the top-left-most node. If a node is selected: open its inspector |
-| `f` or `0` | Reset view (pan 120,80 / zoom 100%) |
-| `Esc` | Close inspector if open; otherwise deselect everything |
+| `Enter` | Nothing selected → select top-left-most [[nodes\|node]]<br>Node selected → open [[inspector]] |
+| `f` or `0` | Reset [[canvas#Pan\|pan]] and [[canvas#Zoom\|zoom]] to defaults |
+| `Esc` | [[inspector]] open → close it; otherwise deselect all |
 
-Direction keys use a weighted scoring function: primary axis distance +
-3× secondary axis distance. This heavily favours nodes that are aligned on
-the target axis, making `hjkl` feel like navigating a grid even in freeform
-layouts.
+> [!NOTE] Direction scoring
+> `hjkl` use a weighted score: `secondary_distance × 3 + primary_distance`. This heavily favours axis-aligned neighbours, making navigation feel grid-like even in freeform layouts.
 
 ## Creating nodes
 
-| Key | Action |
-|-----|--------|
-| `n` | New `script` node (spawns adjacent to selection, or at view centre) |
-| `N` | New `lens` node |
-| `m` | New `camera` node |
+| Key | Spawns | Auto-connects? |
+|-----|--------|----------------|
+| `n` | `script` [[nodes\|node]] | Yes, if a node is selected |
+| `N` | `lens` [[nodes\|node]] | Yes |
+| `m` | `camera` [[nodes\|node]] | Yes |
 
-If a node is currently selected, the new node is placed to its right and
-auto-connected (output of selected → input of new).
+New nodes spawn to the right of the selected node (if any), or at the canvas centre.
 
 ## Editing
 
 | Key | Action |
 |-----|--------|
-| `x` | Delete selected node (and all its edges), or delete selected edge |
-| `d` | Toggle enable/disable on selected node |
-| `c` | Toggle connect mode (cursor changes to crosshair) |
+| `x` | Delete selected [[nodes\|node]] (and its [[edges]]) or selected [[edges\|edge]] |
+| `d` | Toggle enable / disable on selected node |
+| `c` | Toggle connect mode (cursor → crosshair) |
 
 ## Layout
 
 | Key | Action |
 |-----|--------|
-| `a` | Toggle auto-layout on / off |
-| `v` | Cycle to next view spec (V1 → V2 → V3 → V1); only active when auto-layout is off |
+| `a` | Toggle [[auto-layout]] on / off |
+| `v` | Cycle [[view-specs\|view spec]] (V1 → V2 → V3 → V1) — freeform only |
 
-## Inspector (while open)
+## Inspector shortcuts (while open)
 
 | Key | Action |
 |-----|--------|
-| `Esc` | Close inspector and return focus to canvas |
-| `d` | Toggle enable/disable on the open node |
-| `x` | Delete the open node |
+| `Esc` | Close [[inspector]], return focus to canvas |
+| `d` | Toggle enable / disable |
+| `x` | Delete node and close |
 
-## Mouse / trackpad
+## Mouse & trackpad
 
 | Gesture | Action |
 |---------|--------|
-| Scroll wheel | Zoom centred on cursor |
-| Drag on canvas background | Pan |
+| Scroll wheel | [[canvas#Zoom\|Zoom]] centred on cursor |
+| Drag canvas background | [[canvas#Pan\|Pan]] |
 | Middle-button drag | Pan |
-| Drag node body | Move node (disabled in auto-layout mode) |
-| Drag output port → node | Connect two nodes |
-| Drag input port → node | Connect (reversed direction) |
-| Drag port → empty canvas | Create new `script` node at drop position and connect |
-| Click edge | Select edge |
-| Click node | Select node + highlight its flow |
-| Second click on selected node | Open inspector |
+| Drag node body | Move node (disabled in [[auto-layout]] mode) |
+| Click node | Select + highlight [[flows\|flow]] |
+| Second click on selected node | Open [[inspector]] |
+| Click edge | Select [[edges\|edge]] |
+| Drag output [[ports\|port]] → node | Connect |
+| Drag input port → node | Connect (reversed) |
+| Drag port → empty canvas | Create + connect new `script` node |
 
 ## Touch
 
 | Gesture | Action |
 |---------|--------|
-| Single-finger drag on canvas | Pan |
-| Pinch | Zoom centred on pinch midpoint |
-| Tap node | Select (first tap) / open inspector (second tap) |
+| Single-finger drag | [[canvas#Pan\|Pan]] |
+| Pinch | [[canvas#Zoom\|Zoom]] centred on midpoint |
+| Tap node | Select (1st tap) / open [[inspector]] (2nd tap) |
 | Drag node | Move node |
-| Drag port | Connect (same behaviour as mouse port drag) |
+| Drag port | Same as mouse port drag → see [[ports#Port drag]] |
