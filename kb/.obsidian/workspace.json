@@ -11,10 +11,14 @@
             "id": "98f656f3ee77511f",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "auto-layout.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "auto-layout"
             }
           }
         ]
@@ -27,10 +31,14 @@
             "id": "051894fd845456c2",
             "type": "leaf",
             "state": {
-              "type": "graph",
-              "state": {},
-              "icon": "lucide-git-fork",
-              "title": "Graph view"
+              "type": "markdown",
+              "state": {
+                "file": "ports.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "ports"
             }
           }
         ]
@@ -196,18 +204,25 @@
       "bases:Create new base": false
     }
   },
-  "active": "98f656f3ee77511f",
+  "active": "051894fd845456c2",
   "lastOpenFiles": [
+    "reactions.md",
+    "business.md",
+    "market.md",
+    "design-concepts.md",
+    "feature-ideas.md",
+    "index.md",
+    "auto-layout.md",
+    "decisions.md",
+    "vision.md",
     "concepts.md",
     "canvas.md",
     "stack-cues.md",
-    "auto-layout.md",
     "inspector.md",
     "ports.md",
     "flows.md",
     "edges.md",
     "nodes.md",
-    "index.md",
     "usage.md",
     "view-specs.md",
     "Welcome.md",

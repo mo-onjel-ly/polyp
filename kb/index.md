@@ -1,15 +1,29 @@
 ---
 title: polyp knowledge base
-aliases: [home, kb]
+aliases: [home, kb, index]
 tags: [polyp, moc]
 ---
 
 # polyp
 
-Node-based flowchart programming UI — Electron app wrapping a single-file HTML prototype.
+Node-based flowchart programming UI — Electron desktop app, dark, keyboard-first, aiming to become a substrate for domain modeling, context gathering, and agentic workflow engineering.
 
-> [!ABSTRACT] Quick orientation
-> Nodes connect left-to-right via ports. Connections form directed flows. The graph is always a DAG. Layout can be computed automatically or arranged manually across three saved view specs.
+> [!ABSTRACT] Start here
+> New to this KB? Read [[vision]] for what polyp is trying to be, then browse the concept notes below. For practical use, start with [[usage]] and [[keyboard-shortcuts]].
+
+---
+
+## Workstream
+
+| Note | Purpose |
+|------|---------|
+| [[vision]] | What polyp is + what it's trying to become |
+| [[decisions]] | Chronological log of design and engineering decisions |
+| [[feature-ideas]] | Backlog — near/medium/long/wild |
+| [[design-concepts]] | Visual, interaction, and architectural explorations |
+| [[market]] | Related tools, prior art, competitive landscape |
+| [[business]] | Startup angles, monetization, product strategy |
+| [[reactions]] | Likes, dislikes, curious — living gut-reaction log |
 
 ## Core concepts
 
@@ -32,13 +46,9 @@ Node-based flowchart programming UI — Electron app wrapping a single-file HTML
 | [[keyboard-shortcuts]] | Every key, mouse, and touch action |
 | [[usage]] | Practical guide — building graphs, layout modes |
 
-## Design decisions
-
-| Note | Summary |
-|------|---------|
-| [[view-specs]] | Copy-on-first-visit, lazy commit, auto-layout integration |
-
 ---
+
+## Architecture diagram
 
 ```mermaid
 graph TD
@@ -63,4 +73,27 @@ graph TD
     N --> I
     CV --> VS
     CV --> AL
+```
+
+## Workstream graph
+
+```mermaid
+graph LR
+    VI(["[[vision]]"])
+    DEC(["[[decisions]]"])
+    FI(["[[feature-ideas]]"])
+    DC(["[[design-concepts]]"])
+    MK(["[[market]]"])
+    BU(["[[business]]"])
+    RE(["[[reactions]]"])
+
+    VI --> FI
+    VI --> DC
+    VI --> BU
+    MK --> BU
+    MK --> FI
+    RE --> DC
+    RE --> FI
+    DEC --> VI
+    DC --> FI
 ```
