@@ -1,0 +1,6 @@
+.DS_Store
+*.zip
+bundle/
+node_modules/
+dist/
+out/

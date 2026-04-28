@@ -1,0 +1,2179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>flowgraph · prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:           #0a0b0d;
+    --bg-grid:      #131418;
+    --bg-grid-lg:   #1a1c22;
+    --panel:        #0f1115;
+    --panel-hi:     #15181e;
+    --line:         #24272f;
+    --line-hi:      #3a3f4b;
+    --text:         #d8dbe2;
+    --text-dim:     #7a7f8c;
+    --text-mute:    #4a4e59;
+    --accent:       #e6e8ec;
+    --sel:          #ffffff;
+    --danger:       #ff5a5f;
+    --ok:           #6ee7a8;
+    --warn:         #ffcb6b;
+
+    /* flow hues — kept tightly chromatic, low-sat so overlaps don't muddy */
+    --f0: 200 80% 60%;   /* cyan-blue */
+    --f1: 30  90% 62%;   /* amber */
+    --f2: 330 75% 65%;   /* magenta */
+    --f3: 150 60% 58%;   /* mint */
+    --f4: 260 70% 70%;   /* violet */
+    --f5: 0   75% 65%;   /* coral */
+
+    --node-size: 72px;
+    --node-radius: 4px;
+    --port-size: 9px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:var(--bg); }
+  body {
+    font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.35;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- top bar ---------- */
+  .topbar {
+    position: fixed; top:0; left:0; right:0; height: 32px;
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 12px;
+    background: linear-gradient(180deg, #0d0e12 0%, #0a0b0d 100%);
+    border-bottom: 1px solid var(--line);
+    z-index: 100;
+    font-size: 11px;
+  }
+  .topbar .brand {
+    letter-spacing: 0.18em; font-weight: 600; color: var(--text);
+    text-transform: uppercase;
+  }
+  .topbar .brand::before {
+    content: "◆"; color: var(--ok); margin-right: 6px; font-size: 9px;
+    vertical-align: 1px;
+  }
+  .topbar .sep {
+    width:1px; height:14px; background: var(--line);
+  }
+  .topbar .meta { color: var(--text-dim); }
+  .topbar .meta b { color: var(--text); font-weight: 500; }
+  .topbar .spacer { flex: 1; }
+  .topbar .hint { color: var(--text-mute); }
+  .topbar .hint kbd {
+    font-family: inherit; font-size: 10px;
+    background: var(--panel-hi);
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 1px 5px;
+    color: var(--text-dim);
+    margin: 0 2px;
+  }
+
+  /* toolbar buttons */
+  .tb-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: inherit;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 3px 8px 3px 6px;
+    cursor: pointer;
+    transition: color 0.08s ease, border-color 0.08s ease, background 0.08s ease;
+  }
+  .tb-btn:hover { color: var(--text); border-color: var(--line-hi); }
+  .tb-btn.on {
+    color: var(--bg);
+    background: var(--text);
+    border-color: var(--text);
+  }
+  .tb-btn .tb-icon {
+    display: inline-flex; flex-direction: column; gap: 1px;
+    width: 10px;
+  }
+  .tb-btn .tb-icon span {
+    display: block;
+    height: 2px;
+    background: currentColor;
+    border-radius: 1px;
+  }
+  .tb-btn .tb-icon span:nth-child(1) { width: 10px; }
+  .tb-btn .tb-icon span:nth-child(2) { width: 7px; }
+  .tb-btn .tb-icon span:nth-child(3) { width: 4px; }
+
+  /* brief transition during layout mode switch */
+  .world.layout-anim .node {
+    transition: left 0.24s cubic-bezier(.4,.0,.2,1), top 0.24s cubic-bezier(.4,.0,.2,1);
+  }
+
+  /* ---------- canvas ---------- */
+  .canvas {
+    position: absolute; inset: 32px 0 22px 0;
+    overflow: hidden;
+    cursor: grab;
+    background:
+      radial-gradient(ellipse at 50% 30%, #101217 0%, var(--bg) 70%);
+    touch-action: none;
+    -webkit-touch-callout: none;
+  }
+  .canvas.panning { cursor: grabbing; }
+  .canvas.connecting { cursor: crosshair; }
+
+  .world {
+    position: absolute; left: 0; top: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+
+  /* grid — two-level, faint */
+  .grid {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(var(--bg-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px),
+      linear-gradient(var(--bg-grid-lg) 1px, transparent 1px),
+      linear-gradient(90deg, var(--bg-grid-lg) 1px, transparent 1px);
+    background-size: 20px 20px, 20px 20px, 100px 100px, 100px 100px;
+    background-position: -1px -1px;
+    opacity: 0.6;
+  }
+
+  /* edges svg fills the world */
+  svg.edges {
+    position: absolute; left: 0; top: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+  svg.edges path.edge {
+    fill: none;
+    stroke-width: 1.5;
+    pointer-events: stroke;
+    cursor: pointer;
+    transition: stroke-width 0.08s ease;
+  }
+  svg.edges path.edge-hit {
+    fill: none;
+    stroke: transparent;
+    stroke-width: 10;
+    pointer-events: stroke;
+    cursor: pointer;
+  }
+  svg.edges path.edge:hover { stroke-width: 2.5; }
+  svg.edges path.edge.selected { stroke-width: 2.5; filter: drop-shadow(0 0 4px currentColor); }
+  svg.edges path.ghost {
+    fill: none;
+    stroke: var(--text-dim);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 3;
+    pointer-events: none;
+  }
+
+  /* ---------- node ---------- */
+  .node {
+    position: absolute;
+    width: var(--node-size);
+    height: var(--node-size);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--node-radius);
+    display: flex; flex-direction: column;
+    cursor: grab;
+    transition: border-color 0.08s ease, box-shadow 0.08s ease, transform 0.08s ease;
+    will-change: transform;
+    touch-action: none;
+  }
+  .node:hover { border-color: var(--line-hi); }
+  .node.selected {
+    border-color: var(--sel);
+    box-shadow: 0 0 0 1px var(--sel), 0 4px 16px rgba(0,0,0,0.5);
+    z-index: 5;
+  }
+  .node.dragging { cursor: grabbing; z-index: 10; }
+
+  /* Stacked: nodes that share space with others. Each card inherits
+     --stack-offset that shifts it on a diagonal, and layered shadows
+     hint at depth behind the topmost card. */
+  .node.stacked {
+    transform: translate(var(--stack-offset, 0), var(--stack-offset, 0));
+    box-shadow:
+      -3px -3px 0 -1px var(--panel),
+      -3px -3px 0 0 var(--line),
+      -6px -6px 0 -1px var(--panel),
+      -6px -6px 0 0 var(--line),
+      0 4px 12px rgba(0,0,0,0.4);
+  }
+  .node.stacked.selected {
+    box-shadow:
+      -3px -3px 0 -1px var(--panel),
+      -3px -3px 0 0 var(--line),
+      -6px -6px 0 -1px var(--panel),
+      -6px -6px 0 0 var(--line),
+      0 0 0 1px var(--sel),
+      0 4px 16px rgba(0,0,0,0.5);
+  }
+  .node .stack-badge {
+    position: absolute;
+    top: -7px; right: -7px;
+    min-width: 16px; height: 16px;
+    padding: 0 4px;
+    background: var(--text);
+    color: var(--bg);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 16px;
+    text-align: center;
+    border-radius: 8px;
+    box-shadow: 0 0 0 2px var(--bg);
+    pointer-events: none;
+  }
+
+  /* flow highlight: when a node is selected, dim everything not in its flow */
+  .world.flow-highlight .node {
+    opacity: 0.12;
+    filter: saturate(0.15) brightness(0.7);
+    transition: opacity 0.18s ease, filter 0.18s ease;
+  }
+  .world.flow-highlight .node.in-flow {
+    opacity: 1;
+    filter: none;
+  }
+  .world.flow-highlight .node.selected {
+    opacity: 1;
+    filter: none;
+  }
+  /* When highlight first activates, briefly pulse the in-flow nodes
+     so the change is unmistakable. */
+  .world.flow-highlight.flash .node.in-flow {
+    animation: flowFlash 0.45s ease;
+  }
+  @keyframes flowFlash {
+    0%   { box-shadow: 0 0 0 0 hsl(var(--flow) / 0); }
+    40%  { box-shadow: 0 0 0 4px hsl(var(--flow) / 0.5); }
+    100% { box-shadow: 0 0 0 0 hsl(var(--flow) / 0); }
+  }
+  svg.edges path.edge.dim {
+    opacity: 0.06 !important;
+    transition: opacity 0.18s ease;
+  }
+
+  /* flow color stripe on left edge */
+  .node::before {
+    content: "";
+    position: absolute;
+    left: -1px; top: -1px; bottom: -1px;
+    width: 2px;
+    background: hsl(var(--flow));
+    border-radius: 2px 0 0 2px;
+  }
+
+  .node-head {
+    display: flex; align-items: center; gap: 4px;
+    padding: 3px 5px 2px 5px;
+    border-bottom: 1px solid var(--line);
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    line-height: 1;
+  }
+  .node-head .type {
+    font-weight: 600;
+    color: hsl(var(--flow));
+  }
+  .node-head .id {
+    color: var(--text-mute);
+    margin-left: 2px;
+    font-size: 8px;
+  }
+  .node-head .enabled-dot {
+    width: 4px; height: 4px; border-radius: 50%;
+    background: var(--text);
+    margin-left: auto;
+    box-shadow: 0 0 3px var(--text);
+  }
+  .node-head .enabled-dot.off {
+    background: transparent;
+    border: 1px solid var(--text-mute);
+    box-shadow: none;
+  }
+  .node-head .status {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--text-mute);
+    margin-left: 3px;
+  }
+  .node-head .status.ok { background: var(--ok); box-shadow: 0 0 4px hsl(150 60% 58% / 0.6); }
+  .node-head .status.warn { background: var(--warn); }
+  .node-head .status.run { background: var(--f0); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 50% { opacity: 0.3; } }
+
+  .node-title {
+    flex: 1;
+    padding: 4px 6px 3px 6px;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--text);
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+  }
+
+  .node-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 2px 5px 3px 5px;
+    font-size: 8px;
+    color: var(--text-mute);
+    letter-spacing: 0.04em;
+    border-top: 1px solid var(--line);
+    line-height: 1;
+  }
+
+  /* disabled node: desaturated + dashed flow stripe */
+  .node.disabled { opacity: 0.55; }
+  .node.disabled::before {
+    background: repeating-linear-gradient(
+      180deg,
+      hsl(var(--flow)) 0 3px,
+      transparent 3px 6px
+    );
+  }
+  .node.disabled .node-title { color: var(--text-dim); text-decoration: line-through; text-decoration-color: var(--text-mute); text-decoration-thickness: 1px; }
+
+  /* ports */
+  .port {
+    position: absolute;
+    width: var(--port-size);
+    height: var(--port-size);
+    background: var(--panel);
+    border: 1px solid var(--line-hi);
+    border-radius: 50%;
+    cursor: crosshair;
+    z-index: 2;
+    transition: transform 0.08s ease, border-color 0.08s ease, background 0.08s ease;
+    touch-action: none;
+  }
+  /* invisible larger hit area for touch */
+  .port::after {
+    content: "";
+    position: absolute;
+    inset: -10px;
+    border-radius: 50%;
+  }
+
+  /* touch devices: slightly bigger visible port for finger targeting */
+  @media (pointer: coarse) {
+    :root { --port-size: 12px; }
+    .port::after { inset: -14px; }
+  }
+  .port:hover {
+    transform: scale(1.4);
+    border-color: var(--sel);
+    background: hsl(var(--flow));
+  }
+  .port.in {
+    left: calc(var(--port-size) / -2 - 0.5px);
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .port.in:hover { transform: translateY(-50%) scale(1.4); }
+  .port.out {
+    right: calc(var(--port-size) / -2 - 0.5px);
+    top: 50%;
+    transform: translateY(-50%);
+    background: hsl(var(--flow) / 0.2);
+    border-color: hsl(var(--flow) / 0.8);
+  }
+  .port.out:hover { transform: translateY(-50%) scale(1.4); background: hsl(var(--flow)); }
+
+  /* ---------- inspector (expanded node as floating overlay) ---------- */
+  .inspector-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(5, 6, 8, 0.55);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 190;
+    animation: fadeIn 0.12s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } }
+
+  .inspector {
+    position: fixed;
+    width: 440px;
+    max-width: calc(100vw - 32px);
+    max-height: 75vh;
+    background: rgba(15,17,21,0.98);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--line-hi);
+    border-radius: 6px;
+    box-shadow: 0 24px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.03);
+    z-index: 200;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    animation: pop 0.14s ease;
+    /* centered by default */
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+  }
+  @keyframes pop {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+
+  @media (max-width: 560px) {
+    .inspector { width: calc(100vw - 24px); }
+  }
+
+  .inspector-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent);
+  }
+  .inspector-head .tag {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: hsl(var(--flow));
+    padding: 2px 5px;
+    border: 1px solid hsl(var(--flow) / 0.4);
+    border-radius: 2px;
+  }
+  .inspector-head input.title {
+    flex: 1;
+    background: transparent;
+    border: none; outline: none;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 2px 0;
+  }
+  .inspector-head .close {
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 14px;
+    line-height: 1;
+  }
+  .inspector-head .close:hover { color: var(--text); }
+
+  /* on/off toggle */
+  .inspector-head .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    padding: 2px 6px 2px 3px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: color 0.1s ease, border-color 0.1s ease, background 0.1s ease;
+  }
+  .inspector-head .toggle:hover { border-color: var(--line-hi); color: var(--text); }
+  .inspector-head .toggle .track {
+    position: relative;
+    display: inline-block;
+    width: 18px; height: 10px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    transition: background 0.14s ease, border-color 0.14s ease;
+  }
+  .inspector-head .toggle .knob {
+    position: absolute;
+    top: 1px; left: 1px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-mute);
+    transition: left 0.14s ease, background 0.14s ease;
+  }
+  .inspector-head .toggle.on {
+    color: hsl(var(--flow));
+    border-color: hsl(var(--flow) / 0.5);
+  }
+  .inspector-head .toggle.on .track {
+    background: hsl(var(--flow) / 0.2);
+    border-color: hsl(var(--flow) / 0.6);
+  }
+  .inspector-head .toggle.on .knob {
+    left: 9px;
+    background: hsl(var(--flow));
+    box-shadow: 0 0 4px hsl(var(--flow) / 0.6);
+  }
+
+  .inspector-body {
+    padding: 10px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .field {
+    margin-bottom: 10px;
+  }
+  .field label {
+    display: block;
+    font-size: 9px; letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-mute);
+    margin-bottom: 4px;
+  }
+  .field textarea, .field input, .field select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 6px 8px;
+    border-radius: 3px;
+    outline: none;
+    resize: vertical;
+  }
+  .field textarea:focus, .field input:focus, .field select:focus { border-color: var(--line-hi); }
+  .field textarea { min-height: 90px; font-size: 11px; line-height: 1.5; }
+
+  .upstream {
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 6px 8px;
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--bg);
+  }
+  .upstream .row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .upstream .dot { width:6px; height:6px; border-radius: 50%; }
+  .upstream .row b { color: var(--text); font-weight: 500; }
+  .upstream .row span { color: var(--text-mute); margin-left: auto; font-size: 9px; }
+  .upstream .none { color: var(--text-mute); font-style: italic; }
+
+  .inspector-foot {
+    display: flex; gap: 6px; padding: 8px 10px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+    font-size: 10px;
+  }
+  .inspector-foot .key {
+    color: var(--text-mute);
+  }
+  .inspector-foot .key kbd {
+    font-family: inherit;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    padding: 1px 4px;
+    border-radius: 2px;
+    color: var(--text-dim);
+    margin: 0 1px;
+  }
+
+  /* ---------- status bar ---------- */
+  .statusbar {
+    position: fixed; bottom: 0; left: 0; right: 0; height: 22px;
+    background: #0c0d11;
+    border-top: 1px solid var(--line);
+    display: flex; align-items: center;
+    padding: 0 10px;
+    font-size: 10px;
+    color: var(--text-mute);
+    letter-spacing: 0.04em;
+    gap: 16px;
+    z-index: 100;
+  }
+  .statusbar b { color: var(--text-dim); font-weight: 500; }
+  .statusbar .spacer { flex: 1; }
+  .statusbar .mode {
+    color: var(--ok);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .statusbar .mode.connect { color: var(--f1); }
+
+  /* ---------- palette (create menu) ---------- */
+  .palette {
+    position: fixed;
+    background: rgba(15,17,21,0.98);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--line-hi);
+    border-radius: 4px;
+    padding: 4px;
+    min-width: 180px;
+    z-index: 300;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    animation: pop 0.1s ease;
+  }
+  .palette .item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    border-radius: 2px;
+  }
+  .palette .item:hover, .palette .item.focus { background: var(--panel-hi); }
+  .palette .item .type {
+    font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--text-dim);
+    margin-left: auto;
+  }
+  .palette .item .mark {
+    width: 8px; height: 8px; border-radius: 1px;
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">flowgraph</span>
+  <span class="sep"></span>
+  <span class="meta">graph · <b>untitled</b></span>
+  <span class="meta" id="node-count">nodes: 0</span>
+  <span class="meta" id="edge-count">edges: 0</span>
+  <span class="sep"></span>
+  <button class="tb-btn" id="auto-layout-btn" title="Auto-layout (a)">
+    <span class="tb-icon">
+      <span></span><span></span><span></span>
+    </span>
+    auto-layout
+  </button>
+  <span class="spacer"></span>
+  <span class="hint">
+    <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd> nav ·
+    <kbd>↵</kbd> select / expand ·
+    <kbd>n</kbd> new ·
+    <kbd>d</kbd> disable ·
+    <kbd>a</kbd> layout ·
+    <kbd>x</kbd> delete ·
+    <kbd>esc</kbd> clear
+  </span>
+</div>
+
+<div class="canvas" id="canvas">
+  <div class="world" id="world">
+    <div class="grid"></div>
+    <svg class="edges" id="edges" width="4000" height="4000"></svg>
+    <!-- nodes injected here -->
+  </div>
+</div>
+
+<div class="statusbar">
+  <span class="mode" id="mode">NORMAL</span>
+  <span><b id="sel-info">—</b></span>
+  <span class="spacer"></span>
+  <span id="zoom-info">100%</span>
+  <span id="pan-info">0, 0</span>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- state ----------
+  const state = {
+    nodes: new Map(),    // id -> node
+    edges: new Map(),    // id -> edge
+    nextNodeId: 1,
+    nextEdgeId: 1,
+    pan: { x: 120, y: 80 },
+    zoom: 1,
+    selected: null,     // node id
+    selectedEdge: null, // edge id
+    expanded: null,     // node id currently in inspector
+    mode: 'normal',     // 'normal' | 'connect' | 'pan' | 'drag' | 'port-drag'
+    draggingNode: null,
+    dragOffset: { x: 0, y: 0 },
+    portDrag: null,     // { fromNode, startX, startY, curX, curY }
+    panStart: null,
+    flowAssignments: new Map(), // rootId -> flow index
+    nextFlow: 0,
+  };
+
+  const NODE_SIZE = 72;
+  const FLOW_COUNT = 6;
+
+  // ---------- dom refs ----------
+  const canvas = document.getElementById('canvas');
+  const world = document.getElementById('world');
+  const edgesSvg = document.getElementById('edges');
+  const modeEl = document.getElementById('mode');
+  const selInfoEl = document.getElementById('sel-info');
+  const zoomInfoEl = document.getElementById('zoom-info');
+  const panInfoEl = document.getElementById('pan-info');
+  const nodeCountEl = document.getElementById('node-count');
+  const edgeCountEl = document.getElementById('edge-count');
+
+  // ---------- types ----------
+  const NODE_TYPES = {
+    script: {
+      label: 'SCRIPT',
+      defaultTitle: 'custom script',
+      defaultConfig: { code: '// upstream inputs arrive as `inputs[]`\n// return the output value\nreturn inputs[0];', lang: 'js' },
+      fields: [
+        { key: 'lang', label: 'language', type: 'select', options: ['js', 'python', 'bash'] },
+        { key: 'code', label: 'script body', type: 'textarea' },
+      ],
+    },
+    lens: {
+      label: 'LENS',
+      defaultTitle: 'view/filter',
+      defaultConfig: { op: 'filter', expr: 'item.value > 0', view: 'table' },
+      fields: [
+        { key: 'op', label: 'operation', type: 'select', options: ['filter', 'map', 'group', 'sort', 'tag', 'select'] },
+        { key: 'expr', label: 'expression', type: 'textarea' },
+        { key: 'view', label: 'render as', type: 'select', options: ['table', 'list', 'cards', 'json', 'raw'] },
+      ],
+    },
+    camera: {
+      label: 'CAMERA',
+      defaultTitle: 'camera feed',
+      defaultConfig: {
+        source: 'default',
+        resolution: '1280x720',
+        fps: 30,
+        mode: 'stream',
+        trigger: 'continuous',
+      },
+      fields: [
+        { key: 'source', label: 'device', type: 'select', options: ['default', 'webcam:0', 'webcam:1', 'rtsp', 'file', 'screen'] },
+        { key: 'resolution', label: 'resolution', type: 'select', options: ['320x240', '640x480', '1280x720', '1920x1080', '3840x2160'] },
+        { key: 'fps', label: 'fps', type: 'select', options: ['1', '5', '15', '30', '60'] },
+        { key: 'mode', label: 'mode', type: 'select', options: ['stream', 'snapshot', 'motion', 'interval'] },
+        { key: 'trigger', label: 'trigger', type: 'select', options: ['continuous', 'on-motion', 'on-signal', 'manual'] },
+      ],
+    },
+  };
+
+  // ---------- helpers ----------
+  const uid = (p) => `${p}${state['next' + p[0].toUpperCase() + p.slice(1) + 'Id']++}`;
+  const nodeId = () => `n${state.nextNodeId++}`;
+  const edgeId = () => `e${state.nextEdgeId++}`;
+
+  function worldFromScreen(sx, sy) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (sx - rect.left - state.pan.x) / state.zoom,
+      y: (sy - rect.top - state.pan.y) / state.zoom,
+    };
+  }
+
+  function screenFromWorld(wx, wy) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: wx * state.zoom + state.pan.x + rect.left,
+      y: wy * state.zoom + state.pan.y + rect.top,
+    };
+  }
+
+  function applyTransform() {
+    world.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.zoom})`;
+    panInfoEl.textContent = `${Math.round(state.pan.x)}, ${Math.round(state.pan.y)}`;
+    zoomInfoEl.textContent = `${Math.round(state.zoom * 100)}%`;
+  }
+
+  function setMode(m) {
+    state.mode = m;
+    modeEl.textContent = m.toUpperCase();
+    modeEl.className = 'mode' + (m === 'connect' ? ' connect' : '');
+    canvas.classList.toggle('connecting', m === 'connect');
+  }
+
+  // ---------- pointer abstraction (mouse + touch) ----------
+  // Returns {x, y} clientX/Y from a MouseEvent or the first Touch of a TouchEvent.
+  function getPoint(e) {
+    if (e.touches && e.touches.length) {
+      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+    if (e.changedTouches && e.changedTouches.length) {
+      return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+    }
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  // Attach a unified pointer-drag to an element.
+  // handlers: { onStart(e, pt), onMove(e, pt), onEnd(e, pt) }
+  // onStart may return false to cancel the drag.
+  function onPointerDrag(el, handlers) {
+    const begin = (e) => {
+      // mouse: only primary button
+      if (e.type === 'mousedown' && e.button !== 0 && e.button !== 1) return;
+      // touch: only single-finger drags (multi-touch reserved for pinch)
+      if (e.type === 'touchstart' && e.touches.length > 1) return;
+
+      const pt = getPoint(e);
+      const res = handlers.onStart ? handlers.onStart(e, pt) : undefined;
+      if (res === false) return;
+
+      const move = (ev) => {
+        if (ev.type === 'touchmove' && ev.touches.length > 1) return; // let pinch handler take over
+        const p = getPoint(ev);
+        if (handlers.onMove) handlers.onMove(ev, p);
+        if (ev.cancelable) ev.preventDefault();
+      };
+      const end = (ev) => {
+        document.removeEventListener('mousemove', move);
+        document.removeEventListener('mouseup', end);
+        document.removeEventListener('touchmove', move);
+        document.removeEventListener('touchend', end);
+        document.removeEventListener('touchcancel', end);
+        const p = getPoint(ev);
+        if (handlers.onEnd) handlers.onEnd(ev, p);
+      };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', end);
+      document.addEventListener('touchmove', move, { passive: false });
+      document.addEventListener('touchend', end);
+      document.addEventListener('touchcancel', end);
+    };
+    el.addEventListener('mousedown', begin);
+    el.addEventListener('touchstart', begin, { passive: false });
+  }
+
+  // Given a screen point, find the node DOM element under it.
+  // On touch, elementFromPoint works during touchend via changedTouches coords.
+  function nodeElAtPoint(x, y) {
+    const el = document.elementFromPoint(x, y);
+    return el && el.closest ? el.closest('.node') : null;
+  }
+
+  function updateCounts() {
+    nodeCountEl.textContent = `nodes: ${state.nodes.size}`;
+    edgeCountEl.textContent = `edges: ${state.edges.size}`;
+  }
+
+  // ---------- flow coloring ----------
+  // Assign each connected-component / root-chain a flow hue.
+  // When a node has multiple parents, it takes the min flow index.
+  function recomputeFlows() {
+    state.flowAssignments.clear();
+    const nodes = [...state.nodes.values()];
+    // find roots (no incoming)
+    const incoming = new Map();
+    nodes.forEach(n => incoming.set(n.id, 0));
+    state.edges.forEach(e => incoming.set(e.to, (incoming.get(e.to) || 0) + 1));
+    const roots = nodes.filter(n => incoming.get(n.id) === 0);
+
+    let flowIdx = 0;
+    roots.forEach(r => {
+      state.flowAssignments.set(r.id, flowIdx % FLOW_COUNT);
+      flowIdx++;
+    });
+    // propagate down via BFS, keeping min flow
+    const nodeFlow = new Map();
+    roots.forEach(r => nodeFlow.set(r.id, state.flowAssignments.get(r.id)));
+    let changed = true;
+    while (changed) {
+      changed = false;
+      state.edges.forEach(e => {
+        const fromF = nodeFlow.get(e.from);
+        if (fromF === undefined) return;
+        const curT = nodeFlow.get(e.to);
+        if (curT === undefined || fromF < curT) {
+          nodeFlow.set(e.to, fromF);
+          changed = true;
+        }
+      });
+    }
+    // orphans (cycles, shouldn't happen in DAG, or disconnected)
+    nodes.forEach(n => {
+      if (!nodeFlow.has(n.id)) {
+        nodeFlow.set(n.id, flowIdx % FLOW_COUNT);
+        flowIdx++;
+      }
+    });
+    nodes.forEach(n => { n.flow = nodeFlow.get(n.id); });
+  }
+
+  // ---------- nodes ----------
+  function createNode(type, x, y, opts = {}) {
+    const id = nodeId();
+    const typeSpec = NODE_TYPES[type];
+    const node = {
+      id,
+      type,
+      x, y,
+      title: opts.title || typeSpec.defaultTitle,
+      config: { ...typeSpec.defaultConfig, ...(opts.config || {}) },
+      status: opts.status || 'idle',
+      enabled: opts.enabled !== false,
+      flow: 0,
+    };
+    state.nodes.set(id, node);
+    renderNode(node);
+    recomputeFlows();
+    refreshAllNodeStyles();
+    updateCounts();
+    maybeReflow();
+    return node;
+  }
+
+  function renderNode(node) {
+    const el = document.createElement('div');
+    el.className = 'node' + (node.enabled === false ? ' disabled' : '');
+    el.id = node.id;
+    el.style.left = node.x + 'px';
+    el.style.top = node.y + 'px';
+    el.style.setProperty('--flow', `var(--f${node.flow})`);
+    el.dataset.id = node.id;
+
+    const statusClass =
+      node.status === 'ok' ? 'ok' :
+      node.status === 'warn' ? 'warn' :
+      node.status === 'run' ? 'run' : '';
+    const enabled = node.enabled !== false;
+
+    el.innerHTML = `
+      <div class="node-head">
+        <span class="type">${NODE_TYPES[node.type].label}</span>
+        <span class="id">${node.id}</span>
+        <span class="enabled-dot ${enabled ? '' : 'off'}" title="${enabled ? 'enabled' : 'disabled'}"></span>
+        <span class="status ${statusClass}"></span>
+      </div>
+      <div class="node-title">${escapeHtml(node.title)}</div>
+      <div class="node-foot">
+        <span>${escapeHtml(nodeFootText(node))}</span>
+      </div>
+      <div class="port in" data-port="in"></div>
+      <div class="port out" data-port="out"></div>
+    `;
+
+    world.appendChild(el);
+    attachNodeHandlers(el, node);
+  }
+
+  // Single-field summary shown in the node footer. Each type picks its
+  // most identity-defining config field — language for scripts, op for
+  // lenses, mode for cameras.
+  function nodeFootText(node) {
+    if (node.type === 'script') return node.config.lang || '';
+    if (node.type === 'lens') return node.config.op || '';
+    if (node.type === 'camera') return node.config.mode || '';
+    return '';
+  }
+
+  function refreshNodeEl(node) {
+    const el = document.getElementById(node.id);
+    if (!el) return;
+    el.style.left = node.x + 'px';
+    el.style.top = node.y + 'px';
+    el.style.setProperty('--flow', `var(--f${node.flow})`);
+    el.querySelector('.node-title').textContent = node.title;
+    const footSpan = el.querySelector('.node-foot span');
+    if (footSpan) {
+      footSpan.textContent = nodeFootText(node);
+    }
+    const statusEl = el.querySelector('.status');
+    statusEl.className = 'status ' + (
+      node.status === 'ok' ? 'ok' :
+      node.status === 'warn' ? 'warn' :
+      node.status === 'run' ? 'run' : '');
+    const dotEl = el.querySelector('.enabled-dot');
+    if (dotEl) {
+      const enabled = node.enabled !== false;
+      dotEl.className = 'enabled-dot' + (enabled ? '' : ' off');
+      dotEl.title = enabled ? 'enabled' : 'disabled';
+    }
+    el.classList.toggle('disabled', node.enabled === false);
+  }
+
+  function refreshAllNodeStyles() {
+    state.nodes.forEach(n => {
+      const el = document.getElementById(n.id);
+      if (el) el.style.setProperty('--flow', `var(--f${n.flow})`);
+    });
+    renderEdges();
+  }
+
+  function deleteNode(id) {
+    const node = state.nodes.get(id);
+    if (!node) return;
+    // remove edges
+    [...state.edges.values()].forEach(e => {
+      if (e.from === id || e.to === id) state.edges.delete(e.id);
+    });
+    state.nodes.delete(id);
+    const el = document.getElementById(id);
+    if (el) el.remove();
+    if (state.selected === id) state.selected = null;
+    if (state.expanded === id) closeInspector();
+    recomputeFlows();
+    refreshAllNodeStyles();
+    renderEdges();
+    updateSelInfo();
+    updateCounts();
+    maybeReflow();
+  }
+
+  function toggleEnabled(id) {
+    const node = state.nodes.get(id);
+    if (!node) return;
+    node.enabled = node.enabled === false ? true : false;
+    refreshNodeEl(node);
+    renderEdges();
+    // Update the toggle button in-place if the inspector is open for this node.
+    // Avoids rebuilding the whole inspector, which would lose focus/scroll.
+    if (state.expanded === id) {
+      const btn = document.querySelector('#__toggle');
+      if (btn) {
+        const enabled = node.enabled !== false;
+        btn.className = 'toggle ' + (enabled ? 'on' : 'off');
+        btn.title = enabled ? 'enabled — click to disable' : 'disabled — click to enable';
+        const label = btn.querySelector('.label');
+        if (label) label.textContent = enabled ? 'on' : 'off';
+      }
+    }
+  }
+
+  // ---------- auto-layout (layered DAG) ----------
+  // Assign each node a rank = longest path from any root, then position
+  // ranks into columns and sort rows within a column by parent-barycenter
+  // to reduce edge crossings.
+  function computeAutoLayout() {
+    const nodes = [...state.nodes.values()];
+    if (nodes.length === 0) return new Map();
+
+    const rank = new Map();
+    const incoming = new Map();
+    const outgoing = new Map();
+    nodes.forEach(n => { incoming.set(n.id, []); outgoing.set(n.id, []); });
+    state.edges.forEach(e => {
+      incoming.get(e.to).push(e.from);
+      outgoing.get(e.from).push(e.to);
+    });
+
+    // Kahn's topological order; rank = max(parent rank) + 1
+    const queue = nodes.filter(n => incoming.get(n.id).length === 0).map(n => n.id);
+    const indeg = new Map();
+    nodes.forEach(n => indeg.set(n.id, incoming.get(n.id).length));
+    queue.forEach(id => rank.set(id, 0));
+
+    while (queue.length) {
+      const id = queue.shift();
+      const r = rank.get(id);
+      outgoing.get(id).forEach(to => {
+        const newR = Math.max(rank.get(to) ?? 0, r + 1);
+        rank.set(to, newR);
+        indeg.set(to, indeg.get(to) - 1);
+        if (indeg.get(to) === 0) queue.push(to);
+      });
+    }
+    // any remaining (cycle — shouldn't happen but defensive) get rank 0
+    nodes.forEach(n => { if (!rank.has(n.id)) rank.set(n.id, 0); });
+
+    // group by rank
+    const cols = new Map();
+    rank.forEach((r, id) => {
+      if (!cols.has(r)) cols.set(r, []);
+      cols.get(r).push(id);
+    });
+
+    // Initial row order per column: preserve flow index so related flows
+    // cluster together, then stable by current y.
+    cols.forEach((ids) => {
+      ids.sort((a, b) => {
+        const na = state.nodes.get(a), nb = state.nodes.get(b);
+        if (na.flow !== nb.flow) return na.flow - nb.flow;
+        return na.y - nb.y;
+      });
+    });
+
+    // Barycenter pass (left-to-right): reorder each column's rows based on
+    // mean row-index of their parents in the previous column.
+    const sortedRanks = [...cols.keys()].sort((a, b) => a - b);
+    const rowOf = new Map();
+    sortedRanks.forEach(r => {
+      cols.get(r).forEach((id, i) => rowOf.set(id, i));
+    });
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 1; i < sortedRanks.length; i++) {
+        const r = sortedRanks[i];
+        const ids = cols.get(r);
+        ids.sort((a, b) => {
+          const pa = incoming.get(a);
+          const pb = incoming.get(b);
+          const ba = pa.length ? pa.reduce((s, p) => s + (rowOf.get(p) ?? 0), 0) / pa.length : rowOf.get(a);
+          const bb = pb.length ? pb.reduce((s, p) => s + (rowOf.get(p) ?? 0), 0) / pb.length : rowOf.get(b);
+          return ba - bb;
+        });
+        ids.forEach((id, i) => rowOf.set(id, i));
+      }
+    }
+
+    // Assign positions: columns spaced horizontally, rows vertically.
+    // Center all columns against a common vertical axis so flows read
+    // straight-across rather than zig-zagging between off-center columns.
+    const COL_GAP = NODE_SIZE + 56;
+    const ROW_GAP = NODE_SIZE + 24;
+    const maxRows = Math.max(...sortedRanks.map(r => cols.get(r).length));
+    const centerY = (maxRows * ROW_GAP - (ROW_GAP - NODE_SIZE)) / 2;
+    const positions = new Map();
+    sortedRanks.forEach(r => {
+      const ids = cols.get(r);
+      const totalH = ids.length * ROW_GAP - (ROW_GAP - NODE_SIZE);
+      const startY = centerY - totalH / 2;
+      ids.forEach((id, i) => {
+        positions.set(id, {
+          x: r * COL_GAP,
+          y: startY + i * ROW_GAP,
+        });
+      });
+    });
+
+    // Safety pass: in theory positions are already overlap-free by
+    // construction, but if the node list ever contains duplicates or we
+    // grow more layout rules later, guarantee no two nodes coincide.
+    const occupied = new Map(); // "x,y" -> id
+    positions.forEach((p, id) => {
+      let key = `${p.x},${p.y}`;
+      let bumps = 0;
+      while (occupied.has(key) && bumps < 50) {
+        p.y += ROW_GAP;
+        key = `${p.x},${p.y}`;
+        bumps++;
+      }
+      occupied.set(key, id);
+    });
+    return positions;
+  }
+
+  function applyAutoLayout() {
+    const positions = computeAutoLayout();
+    state.nodes.forEach(n => {
+      // stash freeform position once so we can restore it later
+      if (n.freeX === undefined) { n.freeX = n.x; n.freeY = n.y; }
+      const p = positions.get(n.id);
+      if (p) { n.x = p.x; n.y = p.y; }
+      const el = document.getElementById(n.id);
+      if (el) {
+        el.style.left = n.x + 'px';
+        el.style.top = n.y + 'px';
+      }
+    });
+    renderEdges();
+  }
+
+  function restoreFreeformLayout() {
+    state.nodes.forEach(n => {
+      if (n.freeX !== undefined) {
+        n.x = n.freeX;
+        n.y = n.freeY;
+        n.freeX = undefined;
+        n.freeY = undefined;
+      }
+      const el = document.getElementById(n.id);
+      if (el) {
+        el.style.left = n.x + 'px';
+        el.style.top = n.y + 'px';
+      }
+    });
+    renderEdges();
+    updateStackCues();
+  }
+
+  function toggleAutoLayout() {
+    state.autoLayout = !state.autoLayout;
+    const btn = document.getElementById('auto-layout-btn');
+    if (btn) btn.classList.toggle('on', state.autoLayout);
+    world.classList.toggle('auto-layout', state.autoLayout);
+    // brief transition class so the mode switch animates; removed after
+    world.classList.add('layout-anim');
+    clearTimeout(state._layoutAnimTimer);
+    state._layoutAnimTimer = setTimeout(() => world.classList.remove('layout-anim'), 280);
+
+    if (state.autoLayout) {
+      applyAutoLayout();
+    } else {
+      restoreFreeformLayout();
+    }
+  }
+
+  // Called after any graph mutation; re-runs auto-layout if it's on.
+  function maybeReflow() {
+    if (state.autoLayout) applyAutoLayout();
+    updateStackCues();
+  }
+
+  // ---------- overlap / stack cues ----------
+  // In freeform mode nodes can be dragged on top of one another. Instead of
+  // hiding the collision, visualize it: group overlapping nodes into a
+  // "stack," fan them with a small offset, add layered shadows, and show a
+  // count badge on the topmost node. Removes the need for pixel-perfect
+  // placement while still making structure readable.
+  function updateStackCues() {
+    // Clear previous
+    state.nodes.forEach(n => {
+      const el = document.getElementById(n.id);
+      if (!el) return;
+      el.classList.remove('stacked');
+      el.style.removeProperty('--stack-offset');
+      const badge = el.querySelector('.stack-badge');
+      if (badge) badge.remove();
+    });
+    if (state.autoLayout) return; // auto-layout guarantees no overlap
+
+    // Cluster nodes whose centers are within OVERLAP_THRESH of another
+    // node already in a cluster. Union-find would be cleanest but for
+    // small N a quadratic sweep is fine and easier to read.
+    const OVERLAP_THRESH = NODE_SIZE * 0.55; // ≥55% horizontal+vertical overlap
+    const arr = [...state.nodes.values()];
+    const parent = new Map();
+    const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+    const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+    arr.forEach(n => parent.set(n.id, n.id));
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const a = arr[i], b = arr[j];
+        if (Math.abs(a.x - b.x) < OVERLAP_THRESH && Math.abs(a.y - b.y) < OVERLAP_THRESH) {
+          union(a.id, b.id);
+        }
+      }
+    }
+    // Group by root
+    const groups = new Map();
+    arr.forEach(n => {
+      const r = find(n.id);
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r).push(n);
+    });
+
+    // For each group with >1 member, fan them out visually.
+    groups.forEach((members) => {
+      if (members.length < 2) return;
+      // Order by insertion (node id) so ordering is stable; topmost = last.
+      members.sort((a, b) => parseInt(a.id.slice(1)) - parseInt(b.id.slice(1)));
+      members.forEach((n, i) => {
+        const el = document.getElementById(n.id);
+        if (!el) return;
+        el.classList.add('stacked');
+        // Diagonal fan: each card offsets ~4px right & down from the one below.
+        const off = i * 4;
+        el.style.setProperty('--stack-offset', `${off}px`);
+        // Higher-indexed cards render on top.
+        el.style.zIndex = String(3 + i);
+      });
+      // Badge on topmost card showing total count.
+      const top = members[members.length - 1];
+      const topEl = document.getElementById(top.id);
+      if (topEl) {
+        const badge = document.createElement('div');
+        badge.className = 'stack-badge';
+        badge.textContent = String(members.length);
+        badge.title = `${members.length} overlapping nodes`;
+        topEl.appendChild(badge);
+      }
+    });
+  }
+
+  function attachNodeHandlers(el, node) {
+    let startPt, origX, origY, moved, wasSelected;
+
+    // body drag = move node
+    onPointerDrag(el, {
+      onStart: (e, pt) => {
+        if (e.target.classList.contains('port')) return false;
+        if (e.target.closest && e.target.closest('.port')) return false;
+        e.stopPropagation();
+        if (e.cancelable) e.preventDefault();
+
+        // Remember whether this node was already selected BEFORE this gesture.
+        // This is what drives the two-stage tap: if it was already selected
+        // and the user taps again (no drag), we open the inspector.
+        wasSelected = (state.selected === node.id);
+        startPt = pt;
+        origX = node.x;
+        origY = node.y;
+        moved = false;
+      },
+      onMove: (e, pt) => {
+        // In auto-layout mode, nodes are positioned by the layout engine,
+        // so dragging is disabled. Taps (no movement) still work.
+        if (state.autoLayout) return;
+        const dx = (pt.x - startPt.x) / state.zoom;
+        const dy = (pt.y - startPt.y) / state.zoom;
+        if (!moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+          moved = true;
+          el.classList.add('dragging');
+          // Temporarily exit any stack; the node follows the cursor cleanly
+          // and will be re-evaluated on drop. Other members of its old stack
+          // keep their offsets — we recompute everything on drop.
+          el.classList.remove('stacked');
+          el.style.removeProperty('--stack-offset');
+          const oldBadge = el.querySelector('.stack-badge');
+          if (oldBadge) oldBadge.remove();
+          setMode('drag');
+          // commit to selection once we're sure it's a drag
+          if (!wasSelected) select(node.id);
+        }
+        if (moved) {
+          node.x = origX + dx;
+          node.y = origY + dy;
+          el.style.left = node.x + 'px';
+          el.style.top = node.y + 'px';
+          renderEdges();
+        }
+      },
+      onEnd: () => {
+        el.classList.remove('dragging');
+        if (moved) {
+          setMode('normal');
+          updateStackCues();
+        }
+        if (!moved) {
+          // Two-stage activation: first tap selects + highlights flow,
+          // second tap on the already-selected node opens the inspector.
+          if (wasSelected) {
+            openInspector(node.id);
+          } else {
+            select(node.id);
+          }
+        }
+      },
+    });
+
+    // port: drag creates an edge (and possibly a child node).
+    // The drag doesn't commit until the pointer moves past a threshold —
+    // a tap on a port without movement falls through to the normal
+    // node tap (select, then second-tap to expand). This makes ports
+    // forgiving for touch: fat-fingering the port edge still works.
+    const PORT_DRAG_THRESH = 6; // px of screen movement before commit
+    el.querySelectorAll('.port').forEach(portEl => {
+      let portStartPt = null;
+      let portCommitted = false;
+      let portWhich = null;
+      let portWasSelected = false;
+
+      onPointerDrag(portEl, {
+        onStart: (e, pt) => {
+          e.stopPropagation();
+          if (e.cancelable) e.preventDefault();
+          portStartPt = pt;
+          portCommitted = false;
+          portWhich = portEl.dataset.port;
+          // Remember node-selection state so the fallback tap behaves
+          // identically to a tap on the node body.
+          portWasSelected = (state.selected === node.id);
+        },
+        onMove: (e, pt) => {
+          if (!portCommitted) {
+            const dx = pt.x - portStartPt.x;
+            const dy = pt.y - portStartPt.y;
+            if (Math.hypot(dx, dy) < PORT_DRAG_THRESH) return;
+            // Cross the threshold: now actually begin the port-drag.
+            portCommitted = true;
+            beginPortDrag(node, portWhich);
+          }
+          if (!state.portDrag) return;
+          const w = worldFromScreen(pt.x, pt.y);
+          state.portDrag.curWX = w.x;
+          state.portDrag.curWY = w.y;
+          renderEdges();
+        },
+        onEnd: (e, pt) => {
+          if (!portCommitted) {
+            // No movement: treat as a tap on the node. Same two-stage
+            // activation as the node body.
+            if (portWasSelected) {
+              openInspector(node.id);
+            } else {
+              select(node.id);
+            }
+            return;
+          }
+          if (!state.portDrag) return;
+          const targetNodeEl = nodeElAtPoint(pt.x, pt.y);
+          const pd = state.portDrag;
+          state.portDrag = null;
+          setMode('normal');
+
+          if (targetNodeEl && targetNodeEl.dataset.id !== pd.fromNode.id) {
+            const targetNode = state.nodes.get(targetNodeEl.dataset.id);
+            if (pd.which === 'out') {
+              tryConnect(pd.fromNode.id, targetNode.id);
+            } else {
+              tryConnect(targetNode.id, pd.fromNode.id);
+            }
+          } else if (!targetNodeEl) {
+            // empty canvas: spawn child node
+            const w = worldFromScreen(pt.x, pt.y);
+            const childX = w.x - NODE_SIZE / 2;
+            const childY = w.y - NODE_SIZE / 2;
+            const newNode = createNode('script', childX, childY);
+            if (pd.which === 'out') {
+              tryConnect(pd.fromNode.id, newNode.id);
+            } else {
+              tryConnect(newNode.id, pd.fromNode.id);
+            }
+            select(newNode.id);
+          }
+          renderEdges();
+        },
+      });
+    });
+  }
+
+  // ---------- port drag / connect / create-child ----------
+  // Just sets up port-drag state. Movement + end are handled by the pointer-drag
+  // callbacks in attachNodeHandlers.
+  function beginPortDrag(fromNode, which) {
+    const portPos = getPortWorld(fromNode, which);
+    state.portDrag = {
+      fromNode, which,
+      startWX: portPos.x, startWY: portPos.y,
+      curWX: portPos.x, curWY: portPos.y,
+    };
+    setMode('port-drag');
+    renderEdges();
+  }
+
+  function getPortWorld(node, which) {
+    const cx = which === 'out' ? node.x + NODE_SIZE : node.x;
+    const cy = node.y + NODE_SIZE / 2;
+    return { x: cx, y: cy };
+  }
+
+  function tryConnect(fromId, toId) {
+    if (fromId === toId) return false;
+    // no duplicate
+    for (const e of state.edges.values()) {
+      if (e.from === fromId && e.to === toId) return false;
+    }
+    // no cycles (DAG)
+    if (wouldCreateCycle(fromId, toId)) return false;
+    const id = edgeId();
+    state.edges.set(id, { id, from: fromId, to: toId });
+    recomputeFlows();
+    refreshAllNodeStyles();
+    renderEdges();
+    updateCounts();
+    maybeReflow();
+    return true;
+  }
+
+  function wouldCreateCycle(fromId, toId) {
+    // walk downstream from toId; if we hit fromId, cycle
+    const stack = [toId];
+    const visited = new Set();
+    while (stack.length) {
+      const n = stack.pop();
+      if (n === fromId) return true;
+      if (visited.has(n)) continue;
+      visited.add(n);
+      state.edges.forEach(e => {
+        if (e.from === n) stack.push(e.to);
+      });
+    }
+    return false;
+  }
+
+  // ---------- edges rendering ----------
+  function renderEdges() {
+    edgesSvg.innerHTML = '';
+
+    // defs with drop shadow filter
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    defs.innerHTML = `
+      <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="1.2" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    `;
+    edgesSvg.appendChild(defs);
+
+    state.edges.forEach(e => {
+      const from = state.nodes.get(e.from);
+      const to = state.nodes.get(e.to);
+      if (!from || !to) return;
+      const p1 = getPortWorld(from, 'out');
+      const p2 = getPortWorld(to, 'in');
+      const pathD = bezierPath(p1.x, p1.y, p2.x, p2.y);
+
+      const flow = from.flow;
+      const hueVar = `var(--f${flow})`;
+      const color = `hsl(${getHueForFlow(flow)})`;
+      const isSel = state.selectedEdge === e.id;
+
+      // hit area (wider invisible stroke for easier clicking/tapping)
+      const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      hit.setAttribute('d', pathD);
+      hit.setAttribute('class', 'edge-hit');
+      hit.dataset.id = e.id;
+      const selectEdge = (ev) => {
+        ev.stopPropagation();
+        if (ev.cancelable) ev.preventDefault();
+        state.selectedEdge = e.id;
+        state.selected = null;
+        document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
+        renderEdges();
+        updateSelInfo();
+      };
+      hit.addEventListener('mousedown', selectEdge);
+      hit.addEventListener('touchstart', selectEdge, { passive: false });
+      edgesSvg.appendChild(hit);
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', pathD);
+      const inFlow = !state.flowHighlight ||
+        (state.flowHighlight.has(e.from) && state.flowHighlight.has(e.to));
+      const edgeDisabled = from.enabled === false || to.enabled === false;
+      const cls = 'edge' + (isSel ? ' selected' : '') + (!inFlow ? ' dim' : '');
+      path.setAttribute('class', cls);
+      path.setAttribute('stroke', color);
+      path.style.color = color;
+      let baseOpacity = isSel ? 1 : 0.82;
+      if (edgeDisabled) baseOpacity *= 0.45;
+      path.style.opacity = String(baseOpacity);
+      if (edgeDisabled) path.setAttribute('stroke-dasharray', '4 3');
+      if (isSel) path.setAttribute('filter', 'url(#glow)');
+      edgesSvg.appendChild(path);
+    });
+
+    // ghost line while port-dragging
+    if (state.portDrag) {
+      const pd = state.portDrag;
+      let d;
+      if (pd.which === 'out') {
+        d = bezierPath(pd.startWX, pd.startWY, pd.curWX, pd.curWY);
+      } else {
+        d = bezierPath(pd.curWX, pd.curWY, pd.startWX, pd.startWY);
+      }
+      const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      ghost.setAttribute('d', d);
+      ghost.setAttribute('class', 'ghost');
+      edgesSvg.appendChild(ghost);
+    }
+  }
+
+  function bezierPath(x1, y1, x2, y2) {
+    const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
+    const c1x = x1 + dx;
+    const c2x = x2 - dx;
+    return `M ${x1} ${y1} C ${c1x} ${y1}, ${c2x} ${y2}, ${x2} ${y2}`;
+  }
+
+  function getHueForFlow(idx) {
+    const map = {
+      0: '200 80% 60%',
+      1: '30 90% 62%',
+      2: '330 75% 65%',
+      3: '150 60% 58%',
+      4: '260 70% 70%',
+      5: '0 75% 65%',
+    };
+    return map[idx % FLOW_COUNT];
+  }
+
+  // ---------- selection ----------
+  // Find all nodes connected to `id` via edges in either direction
+  // (the whole connected component). Returns a Set of node ids.
+  function getFlowMembers(id) {
+    const members = new Set();
+    const stack = [id];
+    while (stack.length) {
+      const n = stack.pop();
+      if (members.has(n)) continue;
+      members.add(n);
+      state.edges.forEach(e => {
+        if (e.from === n && !members.has(e.to)) stack.push(e.to);
+        if (e.to === n && !members.has(e.from)) stack.push(e.from);
+      });
+    }
+    return members;
+  }
+
+  function applyFlowHighlight(id) {
+    state.flowHighlight = id ? getFlowMembers(id) : null;
+    const members = state.flowHighlight;
+    if (!members) {
+      world.classList.remove('flow-highlight');
+      world.classList.remove('flash');
+      document.querySelectorAll('.node.in-flow').forEach(n => n.classList.remove('in-flow'));
+      renderEdges();
+      return;
+    }
+    const wasHighlighted = world.classList.contains('flow-highlight');
+    world.classList.add('flow-highlight');
+    state.nodes.forEach(n => {
+      const el = document.getElementById(n.id);
+      if (!el) return;
+      el.classList.toggle('in-flow', members.has(n.id));
+    });
+    // Brief flash when highlight first turns on (or switches to a different
+    // flow). Removed after the animation so re-clicks still trigger it.
+    if (!wasHighlighted) {
+      world.classList.add('flash');
+      clearTimeout(state._flashTimer);
+      state._flashTimer = setTimeout(() => world.classList.remove('flash'), 500);
+    } else {
+      // switching to different flow — restart flash
+      world.classList.remove('flash');
+      // force reflow to restart the animation
+      void world.offsetWidth;
+      world.classList.add('flash');
+      clearTimeout(state._flashTimer);
+      state._flashTimer = setTimeout(() => world.classList.remove('flash'), 500);
+    }
+    renderEdges();
+  }
+
+  function select(id) {
+    state.selected = id;
+    state.selectedEdge = null;
+    document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
+    const el = document.getElementById(id);
+    if (el) el.classList.add('selected');
+    applyFlowHighlight(id);
+    updateSelInfo();
+  }
+
+  function deselect() {
+    state.selected = null;
+    state.selectedEdge = null;
+    document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
+    applyFlowHighlight(null);
+    updateSelInfo();
+  }
+
+  function updateSelInfo() {
+    if (state.selected) {
+      const n = state.nodes.get(state.selected);
+      selInfoEl.textContent = `${n.id} · ${n.type} · ${n.title}`;
+    } else if (state.selectedEdge) {
+      const e = state.edges.get(state.selectedEdge);
+      selInfoEl.textContent = `edge ${e.id} · ${e.from} → ${e.to}`;
+    } else {
+      selInfoEl.textContent = '—';
+    }
+  }
+
+  // ---------- inspector ----------
+  function openInspector(id) {
+    const node = state.nodes.get(id);
+    if (!node) return;
+    state.expanded = id;
+    select(id);
+    closeInspectorDom();
+
+    const inspector = document.createElement('div');
+    inspector.className = 'inspector';
+    inspector.id = '__inspector';
+
+    // find upstream
+    const upstream = [...state.edges.values()]
+      .filter(e => e.to === id)
+      .map(e => state.nodes.get(e.from));
+
+    const typeSpec = NODE_TYPES[node.type];
+
+    const enabled = node.enabled !== false;
+    inspector.innerHTML = `
+      <div class="inspector-head">
+        <span class="tag" style="--flow: var(--f${node.flow})">${typeSpec.label}</span>
+        <input class="title" value="${escapeHtml(node.title)}" />
+        <button class="toggle ${enabled ? 'on' : 'off'}" id="__toggle" title="${enabled ? 'enabled — click to disable' : 'disabled — click to enable'}">
+          <span class="track"><span class="knob"></span></span>
+          <span class="label">${enabled ? 'on' : 'off'}</span>
+        </button>
+        <span class="close" id="__close">×</span>
+      </div>
+      <div class="inspector-body">
+        <div class="field">
+          <label>upstream (${upstream.length})</label>
+          <div class="upstream">
+            ${upstream.length === 0
+              ? '<div class="none">no upstream — root of a flow</div>'
+              : upstream.map(u => `
+                <div class="row">
+                  <span class="dot" style="background: hsl(${getHueForFlow(u.flow)})"></span>
+                  <b>${escapeHtml(u.title)}</b>
+                  <span>${u.id} · ${u.type}</span>
+                </div>
+              `).join('')
+            }
+          </div>
+        </div>
+        ${typeSpec.fields.map(f => fieldHtml(f, node.config[f.key])).join('')}
+      </div>
+      <div class="inspector-foot">
+        <span class="key"><kbd>esc</kbd> close</span>
+        <span class="key"><kbd>d</kbd> toggle</span>
+        <span class="key"><kbd>x</kbd> delete</span>
+        <span class="key" style="margin-left:auto">${node.id}</span>
+      </div>
+    `;
+
+    // Centered via CSS (left/top 50% + translate). Just set the flow color.
+    inspector.style.setProperty('--flow', `var(--f${node.flow})`);
+
+    // Backdrop: click outside closes. Append before inspector so it sits underneath.
+    const backdrop = document.createElement('div');
+    backdrop.className = 'inspector-backdrop';
+    backdrop.id = '__inspector-backdrop';
+    backdrop.addEventListener('mousedown', closeInspector);
+    backdrop.addEventListener('touchstart', (e) => {
+      if (e.cancelable) e.preventDefault();
+      closeInspector();
+    }, { passive: false });
+    document.body.appendChild(backdrop);
+    document.body.appendChild(inspector);
+
+    // handlers
+    inspector.querySelector('#__close').addEventListener('click', closeInspector);
+    const toggleBtn = inspector.querySelector('#__toggle');
+    toggleBtn.addEventListener('click', () => {
+      toggleEnabled(node.id);
+    });
+    const titleInput = inspector.querySelector('input.title');
+    titleInput.addEventListener('input', (e) => {
+      node.title = e.target.value;
+      refreshNodeEl(node);
+      updateSelInfo();
+    });
+    titleInput.focus();
+    titleInput.select();
+
+    typeSpec.fields.forEach(f => {
+      const input = inspector.querySelector(`[data-key="${f.key}"]`);
+      if (input) {
+        input.addEventListener('input', (e) => {
+          node.config[f.key] = e.target.value;
+          refreshNodeEl(node);
+        });
+      }
+    });
+
+    // prevent global keys from firing when typing
+    inspector.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeInspector();
+        e.stopPropagation();
+      }
+      // don't stop propagation for everything or we lose typing; only escape
+    });
+  }
+
+  function fieldHtml(f, val) {
+    const v = val == null ? '' : val;
+    if (f.type === 'textarea') {
+      return `<div class="field">
+        <label>${f.label}</label>
+        <textarea data-key="${f.key}">${escapeHtml(v)}</textarea>
+      </div>`;
+    }
+    if (f.type === 'select') {
+      return `<div class="field">
+        <label>${f.label}</label>
+        <select data-key="${f.key}">
+          ${f.options.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o}</option>`).join('')}
+        </select>
+      </div>`;
+    }
+    return `<div class="field">
+      <label>${f.label}</label>
+      <input data-key="${f.key}" value="${escapeHtml(v)}" />
+    </div>`;
+  }
+
+  function closeInspector() {
+    state.expanded = null;
+    closeInspectorDom();
+  }
+  function closeInspectorDom() {
+    const el = document.getElementById('__inspector');
+    if (el) el.remove();
+    const bd = document.getElementById('__inspector-backdrop');
+    if (bd) bd.remove();
+  }
+
+  // ---------- pan ----------
+  // Decide whether a pointer-down on the canvas should start a pan
+  // (rather than being handled by a child like a node or edge-hit).
+  function isCanvasBackdrop(target) {
+    if (target === canvas) return true;
+    if (target.id === 'world') return true;
+    if (target.classList && target.classList.contains('grid')) return true;
+    // SVG edges root: pan only if we didn't hit an edge-hit path
+    if (target.tagName === 'svg' && !target.classList.contains('edge-hit')) return true;
+    return false;
+  }
+
+  onPointerDrag(canvas, {
+    onStart: (e, pt) => {
+      if (!isCanvasBackdrop(e.target)) return false;
+      // two-finger touch means pinch, not pan — let the pinch handler take it
+      if (e.type === 'touchstart' && e.touches.length >= 2) return false;
+      if (e.cancelable) e.preventDefault();
+
+      // Don't clear selection yet — wait until we know whether this is a
+      // pan (drag) or a tap on empty canvas. Pan preserves the flow
+      // highlight so the user can look around while keeping context.
+      setMode('pan');
+      canvas.classList.add('panning');
+
+      canvas._panStart = { pt, panX: state.pan.x, panY: state.pan.y, moved: false };
+    },
+    onMove: (e, pt) => {
+      const ps = canvas._panStart;
+      if (!ps) return;
+      // if a second finger lands mid-pan, abort pan (pinch will take over)
+      if (e.touches && e.touches.length >= 2) return;
+      const dx = pt.x - ps.pt.x;
+      const dy = pt.y - ps.pt.y;
+      if (!ps.moved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) ps.moved = true;
+      state.pan.x = ps.panX + dx;
+      state.pan.y = ps.panY + dy;
+      applyTransform();
+    },
+    onEnd: () => {
+      const ps = canvas._panStart;
+      canvas._panStart = null;
+      canvas.classList.remove('panning');
+      setMode('normal');
+      // Tap on empty canvas (no drag) = clear selection + close inspector.
+      // Pan = leave selection alone.
+      if (ps && !ps.moved) {
+        closeInspector();
+        deselect();
+      }
+    },
+  });
+
+  // ---------- pinch zoom (touch) ----------
+  // Native two-finger gesture; runs independently of the pan handler.
+  let pinchState = null;
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      const t1 = e.touches[0], t2 = e.touches[1];
+      const dx = t2.clientX - t1.clientX;
+      const dy = t2.clientY - t1.clientY;
+      const dist = Math.hypot(dx, dy);
+      const cx = (t1.clientX + t2.clientX) / 2;
+      const cy = (t1.clientY + t2.clientY) / 2;
+      pinchState = {
+        startDist: dist,
+        startZoom: state.zoom,
+        startPan: { x: state.pan.x, y: state.pan.y },
+        anchor: { x: cx, y: cy },
+        startCenter: { x: cx, y: cy },
+      };
+      if (e.cancelable) e.preventDefault();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && pinchState) {
+      const t1 = e.touches[0], t2 = e.touches[1];
+      const dx = t2.clientX - t1.clientX;
+      const dy = t2.clientY - t1.clientY;
+      const dist = Math.hypot(dx, dy);
+      const cx = (t1.clientX + t2.clientX) / 2;
+      const cy = (t1.clientY + t2.clientY) / 2;
+
+      const newZoom = Math.max(0.3, Math.min(2.5,
+        pinchState.startZoom * (dist / pinchState.startDist)));
+
+      const rect = canvas.getBoundingClientRect();
+      // keep the pinch anchor (its original screen point) over the same world point.
+      const ax = pinchState.startCenter.x - rect.left;
+      const ay = pinchState.startCenter.y - rect.top;
+      // base pan so anchor world-point stays under the ORIGINAL center,
+      // then translate by how much the center has moved since pinch start.
+      let newPanX = ax - (ax - pinchState.startPan.x) * (newZoom / pinchState.startZoom);
+      let newPanY = ay - (ay - pinchState.startPan.y) * (newZoom / pinchState.startZoom);
+      newPanX += (cx - pinchState.startCenter.x);
+      newPanY += (cy - pinchState.startCenter.y);
+
+      state.zoom = newZoom;
+      state.pan.x = newPanX;
+      state.pan.y = newPanY;
+      applyTransform();
+      if (e.cancelable) e.preventDefault();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', (e) => {
+    if (e.touches.length < 2) pinchState = null;
+  });
+
+  // zoom with wheel
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    const newZoom = Math.max(0.3, Math.min(2.5, state.zoom * factor));
+    // zoom around cursor
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    state.pan.x = mx - (mx - state.pan.x) * (newZoom / state.zoom);
+    state.pan.y = my - (my - state.pan.y) * (newZoom / state.zoom);
+    state.zoom = newZoom;
+    applyTransform();
+  }, { passive: false });
+
+  // ---------- keyboard ----------
+  document.addEventListener('keydown', (e) => {
+    // if user is typing in inspector, don't intercept
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) {
+      if (e.key === 'Escape') {
+        ae.blur();
+        closeInspector();
+      }
+      return;
+    }
+
+    if (e.key === 'Escape') {
+      if (state.expanded) { closeInspector(); return; }
+      deselect();
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      if (!state.selected) {
+        // nothing selected: pick the top-left-most node so Enter has a target
+        if (state.nodes.size > 0) {
+          const first = [...state.nodes.values()].sort((a,b) => a.y - b.y || a.x - b.x)[0];
+          select(first.id);
+          centerOn(first);
+        }
+      } else {
+        // already selected: expand the inspector
+        openInspector(state.selected);
+      }
+      return;
+    }
+
+    if (e.key === 'h' || e.key === 'j' || e.key === 'k' || e.key === 'l') {
+      navDir(e.key);
+      e.preventDefault();
+      return;
+    }
+
+    if (e.key === 'n') {
+      spawnAtView('script');
+      return;
+    }
+    if (e.key === 'N') {
+      spawnAtView('lens');
+      return;
+    }
+    if (e.key === 'm') {
+      spawnAtView('camera');
+      return;
+    }
+
+    if (e.key === 'x') {
+      if (state.selected) deleteNode(state.selected);
+      else if (state.selectedEdge) {
+        state.edges.delete(state.selectedEdge);
+        state.selectedEdge = null;
+        recomputeFlows();
+        refreshAllNodeStyles();
+        renderEdges();
+        updateCounts();
+        updateSelInfo();
+        maybeReflow();
+      }
+      return;
+    }
+
+    if (e.key === 'c') {
+      setMode(state.mode === 'connect' ? 'normal' : 'connect');
+      return;
+    }
+
+    if (e.key === 'd') {
+      if (state.selected) toggleEnabled(state.selected);
+      return;
+    }
+
+    if (e.key === 'a') {
+      toggleAutoLayout();
+      return;
+    }
+
+    if (e.key === 'f' || e.key === '0') {
+      resetView();
+      return;
+    }
+
+    if (e.key === '1') {
+      // cycle node type of selected
+      if (state.selected) {
+        const n = state.nodes.get(state.selected);
+        n.type = n.type === 'script' ? 'lens' : 'script';
+        const spec = NODE_TYPES[n.type];
+        n.config = { ...spec.defaultConfig };
+        refreshNodeEl(node => node.id === n.id);
+        // easier: full rerender of this node
+        const el = document.getElementById(n.id);
+        if (el) {
+          el.remove();
+          renderNode(n);
+          select(n.id);
+        }
+      }
+    }
+  });
+
+  function navDir(key) {
+    if (state.nodes.size === 0) return;
+    if (!state.selected) {
+      // select topmost-leftmost
+      const first = [...state.nodes.values()].sort((a,b) => a.y - b.y || a.x - b.x)[0];
+      select(first.id);
+      centerOn(first);
+      return;
+    }
+    const cur = state.nodes.get(state.selected);
+    const cx = cur.x + NODE_SIZE/2;
+    const cy = cur.y + NODE_SIZE/2;
+
+    let best = null, bestScore = Infinity;
+    state.nodes.forEach(n => {
+      if (n.id === cur.id) return;
+      const nx = n.x + NODE_SIZE/2;
+      const ny = n.y + NODE_SIZE/2;
+      const dx = nx - cx;
+      const dy = ny - cy;
+      let ok = false, primary, secondary;
+      if (key === 'l') { ok = dx > 5; primary = dx; secondary = Math.abs(dy); }
+      else if (key === 'h') { ok = dx < -5; primary = -dx; secondary = Math.abs(dy); }
+      else if (key === 'j') { ok = dy > 5; primary = dy; secondary = Math.abs(dx); }
+      else if (key === 'k') { ok = dy < -5; primary = -dy; secondary = Math.abs(dx); }
+      if (!ok) return;
+      // weight: favor alignment heavily, then distance
+      const score = secondary * 3 + primary;
+      if (score < bestScore) { bestScore = score; best = n; }
+    });
+    if (best) {
+      select(best.id);
+      centerOn(best);
+    }
+  }
+
+  function centerOn(node) {
+    // ensure node visible; if not, pan
+    const rect = canvas.getBoundingClientRect();
+    const s = screenFromWorld(node.x + NODE_SIZE/2, node.y + NODE_SIZE/2);
+    const margin = 60;
+    if (s.x < rect.left + margin || s.x > rect.right - margin ||
+        s.y < rect.top + margin || s.y > rect.bottom - margin) {
+      state.pan.x += (rect.left + rect.width/2) - s.x;
+      state.pan.y += (rect.top + rect.height/2) - s.y;
+      applyTransform();
+    }
+  }
+
+  function spawnAtView(type) {
+    const rect = canvas.getBoundingClientRect();
+    let wx, wy;
+    if (state.selected) {
+      const cur = state.nodes.get(state.selected);
+      wx = cur.x + NODE_SIZE + 60;
+      wy = cur.y;
+    } else {
+      const c = worldFromScreen(rect.left + rect.width/2, rect.top + rect.height/2);
+      wx = c.x - NODE_SIZE/2;
+      wy = c.y - NODE_SIZE/2;
+    }
+    const n = createNode(type, wx, wy);
+    if (state.selected && state.selected !== n.id) {
+      tryConnect(state.selected, n.id);
+    }
+    select(n.id);
+  }
+
+  function resetView() {
+    state.pan = { x: 120, y: 80 };
+    state.zoom = 1;
+    applyTransform();
+  }
+
+  // ---------- utils ----------
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // ---------- seed demo graph ----------
+  function seed() {
+    // flow A: ingest -> filter -> transform -> sink
+    const a1 = createNode('script', 0,   0,   { title: 'fetch api logs', config: { lang: 'js', code: 'return await fetch("/logs").then(r=>r.json());' }, status: 'ok' });
+    const a2 = createNode('lens',   160, 0,   { title: 'errors only', config: { op: 'filter', expr: 'item.level === "error"', view: 'table' }, status: 'ok' });
+    const a3 = createNode('script', 320, 0,   { title: 'parse stack traces', config: { lang: 'python', code: 'import re\n# ...' }, status: 'run' });
+    const a4 = createNode('lens',   480, 0,   { title: 'group by module', config: { op: 'group', expr: 'item.module', view: 'cards' }, status: 'idle' });
+
+    // flow B: separate root, joins into flow A at transform
+    const b1 = createNode('script', 0,   140, { title: 'prod metrics feed', config: { lang: 'js', code: '// sse stream' }, status: 'ok' });
+    const b2 = createNode('lens',   160, 140, { title: 'last 1h window', config: { op: 'filter', expr: 'item.ts > now()-3600', view: 'list' }, status: 'ok' });
+
+    // flow C: branching
+    const c1 = createNode('script', 0,   280, { title: 'user events', config: { lang: 'js', code: '' }, status: 'ok' });
+    const c2 = createNode('lens',   160, 280, { title: 'tag by cohort', config: { op: 'tag', expr: 'item.plan', view: 'table' }, status: 'ok' });
+    const c3 = createNode('lens',   320, 240, { title: 'active users', config: { op: 'filter', expr: 'item.active', view: 'list' }, status: 'ok' });
+    const c4 = createNode('lens',   320, 320, { title: 'churned users', config: { op: 'filter', expr: '!item.active', view: 'list' }, status: 'warn' });
+
+    // flow D: camera feed → motion-detection script → tagged frames lens
+    const d1 = createNode('camera', 0,   420, { title: 'front door cam', config: { source: 'rtsp', resolution: '1280x720', fps: 15, mode: 'motion', trigger: 'on-motion' }, status: 'run' });
+    const d2 = createNode('script', 160, 420, { title: 'detect & crop', config: { lang: 'python', code: '# yolov8 inference\nframes = inputs[0]\nreturn [crop(f, box) for f, box in detect(frames)]' }, status: 'ok' });
+    const d3 = createNode('lens',   320, 420, { title: 'recent visitors', config: { op: 'tag', expr: 'frame.confidence > 0.7', view: 'cards' }, status: 'ok' });
+
+    tryConnect(a1.id, a2.id);
+    tryConnect(a2.id, a3.id);
+    tryConnect(a3.id, a4.id);
+    tryConnect(b1.id, b2.id);
+    tryConnect(b2.id, a3.id);  // B joins A — demonstrates overlap
+    tryConnect(c1.id, c2.id);
+    tryConnect(c2.id, c3.id);
+    tryConnect(c2.id, c4.id);
+    tryConnect(d1.id, d2.id);
+    tryConnect(d2.id, d3.id);
+
+    applyTransform();
+    renderEdges();
+  }
+
+  seed();
+  applyTransform();
+  updateStackCues();
+
+  // wire up toolbar buttons
+  document.getElementById('auto-layout-btn').addEventListener('click', toggleAutoLayout);
+
+  // re-render edges on resize
+  window.addEventListener('resize', renderEdges);
+
+})();
+</script>
+</body>
+</html>
