@@ -7,6 +7,9 @@
     "start": "electron .",
     "dev": "electron . --inspect=5858"
   },
+  "trustedDependencies": [
+    "electron"
+  ],
   "author": "mo-onjel-ly",
   "license": "MIT",
   "devDependencies": {
