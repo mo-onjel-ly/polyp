@@ -681,6 +681,91 @@
   .palette .item .mark {
     width: 8px; height: 8px; border-radius: 1px;
   }
+
+  /* ---------- command palette ---------- */
+  .cmdpal-wrap {
+    position: fixed; inset: 0;
+    z-index: 600;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+  }
+  .cmdpal-wrap.cmdpal-open { pointer-events: auto; }
+  .cmdpal-backdrop {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.45);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .cmdpal-wrap.cmdpal-open .cmdpal-backdrop { opacity: 1; }
+  .cmdpal {
+    position: relative; z-index: 1;
+    width: 520px; max-width: calc(100vw - 48px);
+    background: rgba(12,13,16,0.97);
+    border: 1px solid var(--line-hi);
+    border-radius: 8px;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.035);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    transform: scale(0.96) translateY(-8px); opacity: 0;
+    transition: transform 0.16s cubic-bezier(.4,0,.2,1), opacity 0.16s ease;
+    pointer-events: none;
+  }
+  .cmdpal-wrap.cmdpal-open .cmdpal {
+    transform: scale(1) translateY(0); opacity: 1;
+    pointer-events: auto;
+  }
+  .cmdpal-input {
+    width: 100%; box-sizing: border-box;
+    background: transparent; border: none; outline: none;
+    color: var(--text); font-family: inherit;
+    font-size: 15px; letter-spacing: 0.01em;
+    padding: 18px 20px;
+    caret-color: var(--ok);
+  }
+  .cmdpal-input::placeholder { color: var(--text-mute); }
+  .cmdpal-hints {
+    padding: 7px 20px 9px;
+    border-top: 1px solid var(--line);
+    font-size: 10px; color: var(--text-mute);
+    display: flex; gap: 14px; flex-wrap: wrap;
+  }
+  .cmdpal-hints kbd {
+    font-family: inherit; font-size: 10px;
+    background: var(--panel-hi); border: 1px solid var(--line);
+    border-radius: 2px; padding: 1px 5px;
+    color: var(--text-dim); margin: 0 2px;
+  }
+
+  /* ---------- toast notifications ---------- */
+  .toast-stack {
+    position: fixed; bottom: 30px; right: 16px;
+    display: flex; flex-direction: column;
+    gap: 8px; align-items: flex-end;
+    z-index: 610; pointer-events: none;
+    max-width: 360px;
+  }
+  .toast {
+    pointer-events: auto;
+    background: rgba(12,13,16,0.96);
+    border: 1px solid var(--line-hi);
+    border-radius: 6px;
+    padding: 9px 10px 9px 13px;
+    font-size: 11px; line-height: 1.4; color: var(--text);
+    display: flex; align-items: flex-start; gap: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    max-width: 340px; min-width: 160px;
+    transition: transform 0.22s cubic-bezier(.4,0,.2,1), opacity 0.22s ease;
+  }
+  .toast-up   { border-left: 2px solid var(--ok); }
+  .toast-down { border-left: 2px solid var(--warn); }
+  .toast-text { flex: 1; word-break: break-word; }
+  .toast-close {
+    flex-shrink: 0; background: transparent; border: none;
+    color: var(--text-mute); cursor: pointer;
+    font-family: inherit; font-size: 14px; line-height: 1;
+    padding: 0 2px; margin-top: -1px;
+  }
+  .toast-close:hover { color: var(--text); }
 </style>
 </head>
 <body>
@@ -733,6 +818,30 @@
   <span id="view-indicator" class="hidden">V1</span>
   <span id="pan-info">0, 0</span>
 </div>
+
+<!-- command palette -->
+<div class="cmdpal-wrap" id="cmdpal-wrap">
+  <div class="cmdpal-backdrop" id="cmdpal-backdrop"></div>
+  <div class="cmdpal">
+    <input
+      id="cmdpal-input"
+      class="cmdpal-input"
+      type="text"
+      placeholder="type something…"
+      autocomplete="off"
+      spellcheck="false"
+    />
+    <div class="cmdpal-hints">
+      <span><kbd>shift</kbd><kbd>↵</kbd> send ↑</span>
+      <span><kbd>⌘/ctrl</kbd><kbd>shift</kbd><kbd>↵</kbd> send ↓</span>
+      <span><kbd>esc</kbd> clear · close</span>
+      <span><kbd>⌘/ctrl</kbd><kbd>p</kbd> close</span>
+    </div>
+  </div>
+</div>
+
+<!-- toast notifications -->
+<div class="toast-stack" id="toast-stack"></div>
 
 <script>
 (() => {
@@ -2035,8 +2144,108 @@
     applyTransform();
   }, { passive: false });
 
+  // ---------- command palette + toasts ----------
+
+  const cmdpalWrap    = document.getElementById('cmdpal-wrap');
+  const cmdpalInput   = document.getElementById('cmdpal-input');
+  const toastStackEl  = document.getElementById('toast-stack');
+  let palOpen = false;
+
+  function openPal() {
+    palOpen = true;
+    cmdpalWrap.classList.add('cmdpal-open');
+    requestAnimationFrame(() => cmdpalInput.focus());
+  }
+
+  function closePal() {
+    palOpen = false;
+    cmdpalWrap.classList.remove('cmdpal-open');
+    // Clear input after the close transition finishes
+    setTimeout(() => { cmdpalInput.value = ''; }, 160);
+  }
+
+  function togglePal() {
+    if (palOpen) closePal(); else openPal();
+  }
+
+  function addToast(text, dir) {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${dir}`;
+    toast.innerHTML =
+      `<span class="toast-text">${escapeHtml(text)}</span>` +
+      `<button class="toast-close" aria-label="dismiss">×</button>`;
+
+    // Start off-screen to the right so we can slide in
+    toast.style.transform = 'translateX(calc(100% + 24px))';
+    toast.style.opacity = '0';
+    toast.style.transition = 'none';
+
+    if (dir === 'up') {
+      // Append at bottom — container (bottom-anchored) grows upward,
+      // existing toasts naturally rise with the flex layout.
+      toastStackEl.appendChild(toast);
+    } else {
+      // Prepend at top — new toast appears above existing ones.
+      // Give existing toasts a brief downward nudge to signal "push down".
+      [...toastStackEl.children].forEach(t => {
+        t.style.transition = 'transform 0.18s ease';
+        t.style.transform = `translateY(${Math.round(t.offsetHeight * 0.15)}px)`;
+        setTimeout(() => { if (t.parentNode) { t.style.transform = ''; } }, 200);
+      });
+      toastStackEl.insertBefore(toast, toastStackEl.firstChild);
+    }
+
+    // Trigger slide-in on next two frames (allows layout to settle first)
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      toast.style.transition = '';
+      toast.style.transform = '';
+      toast.style.opacity = '';
+    }));
+
+    const dismiss = () => {
+      if (!toast.parentNode) return;
+      clearTimeout(toast._t);
+      toast.style.transform = 'translateX(calc(100% + 24px))';
+      toast.style.opacity = '0';
+      setTimeout(() => { if (toast.parentNode) toast.remove(); }, 240);
+    };
+
+    toast.querySelector('.toast-close').addEventListener('click', dismiss);
+    toast._t = setTimeout(dismiss, 8000);
+  }
+
+  cmdpalInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation(); // prevent global handler from blurring + closing inspector
+      if (cmdpalInput.value.length > 0) {
+        cmdpalInput.value = '';
+      } else {
+        closePal();
+      }
+      return;
+    }
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const text = cmdpalInput.value.trim();
+      if (!text) return;
+      // Cmd/Ctrl held alongside Shift+Enter → push down; plain Shift+Enter → push up
+      addToast(text, (e.metaKey || e.ctrlKey) ? 'down' : 'up');
+      cmdpalInput.value = '';
+    }
+  });
+
+  document.getElementById('cmdpal-backdrop').addEventListener('click', closePal);
+
   // ---------- keyboard ----------
   document.addEventListener('keydown', (e) => {
+    // cmd/ctrl+p: toggle command palette — fires regardless of focus
+    if (e.key === 'p' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+      e.preventDefault();
+      togglePal();
+      return;
+    }
+
     // if user is typing in inspector, don't intercept
     const ae = document.activeElement;
     if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) {

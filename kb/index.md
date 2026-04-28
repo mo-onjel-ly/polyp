@@ -24,6 +24,7 @@ Node-based flowchart programming UI — Electron desktop app, dark, keyboard-fir
 | [[market]] | Related tools, prior art, competitive landscape |
 | [[business]] | Startup angles, monetization, product strategy |
 | [[reactions]] | Likes, dislikes, curious — living gut-reaction log |
+| [[ui-ideas]] | UI/UX ideas log — introduced, evolved, shipped, cut |
 
 ## Core concepts
 

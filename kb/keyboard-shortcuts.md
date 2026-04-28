@@ -8,6 +8,12 @@ tags: [polyp, reference]
 
 Active when focus is on the [[canvas]] (not inside an [[inspector]] form field). Inside an inspector field, only `Esc` is intercepted.
 
+## Global (always active)
+
+| Key | Action |
+|-----|--------|
+| `cmd+p` (macOS) / `ctrl+p` | Toggle [[ui-ideas#Command palette\|command palette]] |
+
 ## Navigation
 
 | Key | Action |
@@ -47,6 +53,16 @@ New nodes spawn to the right of the selected node (if any), or at the canvas cen
 |-----|--------|
 | `a` | Toggle [[auto-layout]] on / off |
 | `v` | Cycle [[view-specs\|view spec]] (V1 → V2 → V3 → V1) — freeform only |
+
+## Command palette (while open)
+
+| Key | Action |
+|-----|--------|
+| `Shift+Enter` | Send text as [[ui-ideas#Toast notifications\|toast]] (push up — green border) |
+| `Cmd/Ctrl+Shift+Enter` | Send text as toast (push down — amber border) |
+| `Esc` (non-empty input) | Clear input |
+| `Esc` (empty input) | Close palette |
+| `Cmd+p` / `Ctrl+p` | Close palette |
 
 ## Inspector shortcuts (while open)
 

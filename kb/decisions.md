@@ -99,3 +99,21 @@ Chronological record of significant design and engineering decisions. Each entry
 **Why**: Multi-session work requires durable context. The CLAUDE.md is the first thing loaded in any Claude Code session — it orients Claude without needing to re-explain the project.
 
 ---
+
+## 2026-04-28 (continued)
+
+### Command palette: input-only first iteration
+**Decided**: Ship the palette as a pure text-input surface; wire `Shift+Enter` to toasts. No command dispatch yet.
+**Why**: Command dispatch requires a designed command schema. Starting with "send text as toast" establishes the palette's UX feel, keyboard shortcut, and the two-direction toast mechanic without that dependency.
+**Rejected**: Full command dispatch from day one (premature), no palette at all (misses UX exploration goal).
+→ See [[ui-ideas#Command palette]].
+
+---
+
+### Toast push direction: two modes (up / down)
+**Decided**: `Shift+Enter` pushes existing toasts up; `Cmd/Ctrl+Shift+Enter` nudges existing toasts down with an amber border.
+**Why**: Directional toasts encode intentionality (normal vs. notable). Green/amber border makes the distinction scannable at a glance.
+**Rejected**: Single direction only (misses the interesting mechanic), full physics simulation (over-engineered for v1).
+→ See [[ui-ideas#Toast notifications]].
+
+---
