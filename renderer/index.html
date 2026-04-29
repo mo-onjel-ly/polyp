@@ -2160,7 +2160,7 @@
   function closePal() {
     palOpen = false;
     cmdpalWrap.classList.remove('cmdpal-open');
-    // Clear input after the close transition finishes
+    cmdpalInput.blur(); // return focus to canvas so keyboard shortcuts work again
     setTimeout(() => { cmdpalInput.value = ''; }, 160);
   }
 
