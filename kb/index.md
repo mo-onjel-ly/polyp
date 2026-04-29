@@ -25,6 +25,32 @@ Node-based flowchart programming UI — Electron desktop app, dark, keyboard-fir
 | [[business]] | Startup angles, monetization, product strategy |
 | [[reactions]] | Likes, dislikes, curious — living gut-reaction log |
 | [[ui-ideas]] | UI/UX ideas log — introduced, evolved, shipped, cut |
+| [[ws-wow]] | Workstream way of working — principles, rituals, working contract ("polyps") |
+
+## Planning
+
+| Note | Summary |
+|------|---------|
+| [[todo]] | Current sprint — in progress and near-term items |
+| [[roadmap]] | Milestones 0–8, prototype to platform |
+
+## Engineering
+
+| Note | Summary |
+|------|---------|
+| [[user-action-tracking]] | Semantic event log, JSONL export, replay design, Pydantic schemas |
+| [[tech-stack]] | Current stack with evolution history and rationale |
+| [[tech-stack-research]] | Alternatives and lookahead for every current choice |
+
+## Workstream automation
+
+| Note | Summary |
+|------|---------|
+| [[workstream-automation-git]] | Two-repo git strategy, commit conventions |
+| [[workstream-automation-github]] | GitHub Actions, Issues, Pages, Releases |
+| [[workstream-automation-neocities]] | Dev log publishing to Neocities |
+| [[workstream-automation-twitter]] | Milestone and design observation tweets |
+| [[workstream-automation-polyp]] | **Meta**: using polyp itself to automate the polyp workstream |
 
 ## Core concepts
 
