@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ah/harnesses/polyp/workstream/scripts/log-prompt.sh",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ah/harnesses/polyp/workstream/scripts/save-conversation.sh",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

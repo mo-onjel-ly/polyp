@@ -766,6 +766,15 @@
     padding: 0 2px; margin-top: -1px;
   }
   .toast-close:hover { color: var(--text); }
+
+  /* ---------- action log indicator ---------- */
+  #rec-btn {
+    color: var(--danger); opacity: 0.55; cursor: pointer;
+    transition: opacity 0.1s;
+    letter-spacing: 0.04em;
+  }
+  #rec-btn:hover { opacity: 1; }
+  #rec-btn b { font-weight: 500; color: var(--text-dim); }
 </style>
 </head>
 <body>
@@ -817,6 +826,7 @@
   <span id="zoom-info">100%</span>
   <span id="view-indicator" class="hidden">V1</span>
   <span id="pan-info">0, 0</span>
+  <span id="rec-btn" title="⏺ actions recorded — click to export JSONL">⏺ <b id="rec-count">0</b></span>
 </div>
 
 <!-- command palette -->
@@ -868,6 +878,52 @@
     viewSpecs: [null, null, null], // one spec per slot; null = not yet initialised
     activeView: 0,
   };
+
+  // ---------- action log ----------
+  const actLog = {
+    sessionId: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    t0: Date.now(),
+    started: new Date().toISOString(),
+    events: [],
+  };
+  let actSeq = 0;
+
+  function rec(type, data) {
+    actLog.events.push(
+      data !== undefined
+        ? { seq: actSeq, t: Date.now() - actLog.t0, type, data }
+        : { seq: actSeq, t: Date.now() - actLog.t0, type }
+    );
+    actSeq++;
+    const el = document.getElementById('rec-count');
+    if (el) el.textContent = actSeq;
+  }
+
+  function recSnapshot() {
+    rec('snapshot', {
+      nodes: [...state.nodes.values()].map(n =>
+        ({ id: n.id, type: n.type, x: n.x, y: n.y, title: n.title,
+           status: n.status, enabled: n.enabled, flow: n.flow })),
+      edges: [...state.edges.values()].map(e =>
+        ({ id: e.id, from: e.from, to: e.to })),
+      pan: { ...state.pan }, zoom: state.zoom, activeView: state.activeView,
+    });
+  }
+
+  function exportActionLog() {
+    const lines = actLog.events.map(e =>
+      JSON.stringify({ session: actLog.sessionId, t0: actLog.t0, started: actLog.started, ...e })
+    );
+    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `polyp-session-${actLog.sessionId}.jsonl`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 
   const NODE_SIZE = 72;
   const FLOW_COUNT = 6;
@@ -954,6 +1010,7 @@
   }
 
   function setMode(m) {
+    rec('mode.change', { from: state.mode, to: m });
     state.mode = m;
     modeEl.textContent = m.toUpperCase();
     modeEl.className = 'mode' + (m === 'connect' ? ' connect' : '');
@@ -1081,6 +1138,7 @@
       flow: 0,
     };
     state.nodes.set(id, node);
+    rec('node.create', { id, type, x, y, title: node.title });
     renderNode(node);
     recomputeFlows();
     refreshAllNodeStyles();
@@ -1169,6 +1227,7 @@
   function deleteNode(id) {
     const node = state.nodes.get(id);
     if (!node) return;
+    rec('node.delete', { id, type: node.type, title: node.title });
     // remove edges
     [...state.edges.values()].forEach(e => {
       if (e.from === id || e.to === id) state.edges.delete(e.id);
@@ -1191,6 +1250,7 @@
     const node = state.nodes.get(id);
     if (!node) return;
     node.enabled = node.enabled === false ? true : false;
+    rec('node.toggle', { id, enabled: node.enabled });
     refreshNodeEl(node);
     renderEdges();
     // Update the toggle button in-place if the inspector is open for this node.
@@ -1245,6 +1305,7 @@
 
   function switchToView(idx) {
     if (state.autoLayout || idx === state.activeView) return;
+    rec('view.switch', { from: state.activeView, to: idx });
     commitActiveViewSpec();
     state.activeView = idx;
     // copy-on-first-visit: uninitialised slot mirrors current state
@@ -1403,6 +1464,7 @@
   }
 
   function toggleAutoLayout() {
+    rec('layout.toggle', { auto: !state.autoLayout });
     state.autoLayout = !state.autoLayout;
     const btn = document.getElementById('auto-layout-btn');
     if (btn) btn.classList.toggle('on', state.autoLayout);
@@ -1550,6 +1612,7 @@
       onEnd: () => {
         el.classList.remove('dragging');
         if (moved) {
+          rec('node.move', { id: node.id, x: node.x, y: node.y });
           setMode('normal');
           updateStackCues();
         }
@@ -1676,6 +1739,7 @@
     if (wouldCreateCycle(fromId, toId)) return false;
     const id = edgeId();
     state.edges.set(id, { id, from: fromId, to: toId });
+    rec('edge.create', { id, from: fromId, to: toId });
     recomputeFlows();
     refreshAllNodeStyles();
     renderEdges();
@@ -1851,6 +1915,7 @@
   }
 
   function select(id) {
+    rec('node.select', { id });
     state.selected = id;
     state.selectedEdge = null;
     document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
@@ -1861,6 +1926,7 @@
   }
 
   function deselect() {
+    rec('deselect');
     state.selected = null;
     state.selectedEdge = null;
     document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
@@ -1884,6 +1950,7 @@
   function openInspector(id) {
     const node = state.nodes.get(id);
     if (!node) return;
+    rec('inspector.open', { id, type: node.type });
     state.expanded = id;
     select(id);
     closeInspectorDom();
@@ -2013,6 +2080,7 @@
     closeInspectorDom();
   }
   function closeInspectorDom() {
+    if (state.expanded) rec('inspector.close', { id: state.expanded });
     const el = document.getElementById('__inspector');
     if (el) el.remove();
     const bd = document.getElementById('__inspector-backdrop');
@@ -2068,6 +2136,8 @@
       if (ps && !ps.moved) {
         closeInspector();
         deselect();
+      } else if (ps && ps.moved) {
+        rec('canvas.pan', { x: state.pan.x, y: state.pan.y });
       }
     },
   });
@@ -2142,6 +2212,9 @@
     state.pan.y = my - (my - state.pan.y) * (newZoom / state.zoom);
     state.zoom = newZoom;
     applyTransform();
+    // throttle: only record when the wheel stops firing briefly
+    clearTimeout(state._zoomRecTimer);
+    state._zoomRecTimer = setTimeout(() => rec('canvas.zoom', { zoom: state.zoom, pan: { ...state.pan } }), 120);
   }, { passive: false });
 
   // ---------- command palette + toasts ----------
@@ -2152,12 +2225,14 @@
   let palOpen = false;
 
   function openPal() {
+    rec('palette.open');
     palOpen = true;
     cmdpalWrap.classList.add('cmdpal-open');
     requestAnimationFrame(() => cmdpalInput.focus());
   }
 
   function closePal() {
+    rec('palette.close');
     palOpen = false;
     cmdpalWrap.classList.remove('cmdpal-open');
     cmdpalInput.blur(); // return focus to canvas so keyboard shortcuts work again
@@ -2169,6 +2244,7 @@
   }
 
   function addToast(text, dir) {
+    rec('toast.send', { text, dir });
     const toast = document.createElement('div');
     toast.className = `toast toast-${dir}`;
     toast.innerHTML =
@@ -2299,6 +2375,7 @@
     if (e.key === 'x') {
       if (state.selected) deleteNode(state.selected);
       else if (state.selectedEdge) {
+        rec('edge.delete', { id: state.selectedEdge });
         state.edges.delete(state.selectedEdge);
         state.selectedEdge = null;
         recomputeFlows();
@@ -2356,6 +2433,7 @@
   });
 
   function navDir(key) {
+    rec('nav.dir', { key });
     if (state.nodes.size === 0) return;
     if (!state.selected) {
       // select topmost-leftmost
@@ -2424,6 +2502,7 @@
   }
 
   function resetView() {
+    rec('canvas.reset');
     state.pan = { x: 120, y: 80 };
     state.zoom = 1;
     applyTransform();
@@ -2477,6 +2556,8 @@
   }
 
   seed();
+  rec('session.start', { sessionId: actLog.sessionId });
+  recSnapshot();
   applyTransform();
   updateStackCues();
 
@@ -2489,6 +2570,12 @@
   // seed view-spec 0 from the initial graph state
   state.viewSpecs[0] = captureViewSpec();
   updateViewUI();
+
+  // export action log on rec-btn click
+  document.getElementById('rec-btn').addEventListener('click', exportActionLog);
+
+  // expose on window for DevTools access
+  window._polyp = { exportLog: exportActionLog, getLog: () => actLog };
 
   // re-render edges on resize
   window.addEventListener('resize', renderEdges);
