@@ -84,6 +84,7 @@ These are things the user has stated or implied that I treat as standing instruc
 | Workstream repo (`mo-onjel-ly/polyp-workstream`) is private | Explicit |
 | App repo (`mo-onjel-ly/polyp`) is public | Established |
 | Call the workstream way of working "ws-wow" and affectionately "polyps" | This session |
+| Propose TODOs freely, but never execute on them until explicitly approved | 2026-04-28 |
 | ws-wow's home will be `~/workstreams/workstream-way-of-working` | This session |
 
 ---
