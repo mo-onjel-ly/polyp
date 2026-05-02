@@ -128,6 +128,9 @@
   .tb-btn .tb-icon span:nth-child(2) { width: 7px; }
   .tb-btn .tb-icon span:nth-child(3) { width: 4px; }
 
+  /* anchor mode button — fixed width so cycling doesn't shift toolbar */
+  #anchor-btn { min-width: 72px; }
+
   /* view-spec dot buttons */
   .view-btns {
     display: inline-flex;
@@ -792,6 +795,9 @@
     </span>
     auto-layout
   </button>
+  <button class="tb-btn" id="anchor-btn" title="Canvas anchor mode">
+    <span id="anchor-label">MANUAL</span>
+  </button>
   <span class="sep"></span>
   <span class="view-btns hidden" id="view-btns">
     <button class="view-dot active" id="view-dot-0" title="View 1 (v)">1</button>
@@ -877,6 +883,7 @@
     nextFlow: 0,
     viewSpecs: [null, null, null], // one spec per slot; null = not yet initialised
     activeView: 0,
+    anchorMode: 'manual',  // 'manual' | 'topleft' | 'center'
   };
 
   // ---------- action log ----------
@@ -1267,6 +1274,55 @@
     }
   }
 
+  // ---------- canvas anchor ----------
+
+  function nodeBounds() {
+    if (state.nodes.size === 0) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    state.nodes.forEach(n => {
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x + NODE_SIZE > maxX) maxX = n.x + NODE_SIZE;
+      if (n.y + NODE_SIZE > maxY) maxY = n.y + NODE_SIZE;
+    });
+    return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+  }
+
+  function anchorView() {
+    const MODES = ['manual', 'topleft', 'center'];
+    if (state.anchorMode === 'manual') return;
+    const bounds = nodeBounds();
+    if (!bounds) return;
+    const rect = canvas.getBoundingClientRect();
+    if (state.anchorMode === 'topleft') {
+      const PAD = 40;
+      state.pan.x = PAD - bounds.minX * state.zoom;
+      state.pan.y = PAD - bounds.minY * state.zoom;
+    } else if (state.anchorMode === 'center') {
+      const cx = rect.width  / 2;
+      const cy = rect.height / 2;
+      state.pan.x = cx - ((bounds.minX + bounds.maxX) / 2) * state.zoom;
+      state.pan.y = cy - ((bounds.minY + bounds.maxY) / 2) * state.zoom;
+    }
+    applyTransform();
+  }
+
+  function cycleAnchor() {
+    const order = ['manual', 'topleft', 'center'];
+    state.anchorMode = order[(order.indexOf(state.anchorMode) + 1) % order.length];
+    rec('anchor.cycle', { mode: state.anchorMode });
+    updateAnchorUI();
+    anchorView();
+  }
+
+  function updateAnchorUI() {
+    const labels = { manual: 'MANUAL', topleft: 'TOP-LEFT', center: 'CENTER' };
+    const btn = document.getElementById('anchor-btn');
+    if (btn) btn.classList.toggle('on', state.anchorMode !== 'manual');
+    const lbl = document.getElementById('anchor-label');
+    if (lbl) lbl.textContent = labels[state.anchorMode];
+  }
+
   // ---------- view specs ----------
 
   function captureViewSpec() {
@@ -1443,6 +1499,7 @@
       }
     });
     renderEdges();
+    anchorView();
   }
 
   function restoreFreeformLayout() {
@@ -2503,9 +2560,14 @@
 
   function resetView() {
     rec('canvas.reset');
-    state.pan = { x: 120, y: 80 };
     state.zoom = 1;
-    applyTransform();
+    if (state.anchorMode === 'manual') {
+      state.pan = { x: 120, y: 80 };
+      applyTransform();
+    } else {
+      applyTransform(); // apply zoom first so anchorView uses correct scale
+      anchorView();
+    }
   }
 
   // ---------- utils ----------
@@ -2563,6 +2625,7 @@
 
   // wire up toolbar buttons
   document.getElementById('auto-layout-btn').addEventListener('click', toggleAutoLayout);
+  document.getElementById('anchor-btn').addEventListener('click', cycleAnchor);
   for (let i = 0; i < 3; i++) {
     document.getElementById(`view-dot-${i}`).addEventListener('click', () => switchToView(i));
   }
@@ -2570,6 +2633,7 @@
   // seed view-spec 0 from the initial graph state
   state.viewSpecs[0] = captureViewSpec();
   updateViewUI();
+  updateAnchorUI();
 
   // export action log on rec-btn click
   document.getElementById('rec-btn').addEventListener('click', exportActionLog);
