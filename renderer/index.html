@@ -660,6 +660,68 @@
     color: var(--text-mute);
     margin-bottom: 4px;
   }
+  .field-label-row {
+    display: flex; align-items: center;
+    margin-bottom: 4px;
+  }
+  .field-label-row label { flex: 1; margin-bottom: 0; }
+  .field-expand-btn {
+    background: transparent; border: 1px solid var(--line);
+    color: var(--text-mute); cursor: pointer;
+    font-family: inherit; font-size: 10px; line-height: 1;
+    padding: 1px 5px; border-radius: 2px; flex-shrink: 0;
+    transition: color 0.08s, border-color 0.08s;
+  }
+  .field-expand-btn:hover { color: var(--text); border-color: var(--line-hi); }
+
+  /* ---------- full-window code editor ---------- */
+  .code-editor-overlay {
+    position: fixed;
+    top: 32px; bottom: 22px; left: 0; right: 0;
+    z-index: 800;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    animation: fadeIn 0.08s ease;
+  }
+  .code-editor-overlay.panel-open { left: 200px; }
+  .ced-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 16px; height: 36px; flex-shrink: 0;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .ced-title { font-size: 11px; color: var(--text-dim); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ced-hint { font-size: 10px; color: var(--text-mute); flex-shrink: 0; }
+  .ced-hint kbd {
+    font-family: inherit; font-size: 10px;
+    background: var(--panel-hi); border: 1px solid var(--line);
+    border-radius: 2px; padding: 1px 4px; color: var(--text-dim); margin: 0 1px;
+  }
+  .ced-done {
+    background: var(--text); color: var(--bg); border: none; cursor: pointer;
+    font-family: inherit; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 2px; flex-shrink: 0;
+    transition: opacity 0.08s;
+  }
+  .ced-done:hover { opacity: 0.82; }
+  .ced-close {
+    color: var(--text-mute); cursor: pointer;
+    font-size: 18px; line-height: 1; padding: 0 2px; flex-shrink: 0;
+    transition: color 0.08s;
+  }
+  .ced-close:hover { color: var(--text); }
+  .ced-body { flex: 1; padding: 16px; display: flex; overflow: hidden; }
+  .ced-body textarea {
+    flex: 1; width: 100%; resize: none;
+    background: var(--bg); border: 1px solid var(--line);
+    color: var(--text); font-family: inherit;
+    font-size: 13px; line-height: 1.65;
+    padding: 14px 16px; border-radius: 4px;
+    outline: none; caret-color: var(--ok);
+    transition: border-color 0.08s;
+  }
+  .ced-body textarea:focus { border-color: var(--line-hi); }
   .field textarea, .field input, .field select {
     width: 100%;
     background: var(--bg);
@@ -2355,6 +2417,14 @@
       }
     });
 
+    // expand button → full-window editor
+    inspector.addEventListener('click', e => {
+      const btn = e.target.closest('.field-expand-btn');
+      if (!btn) return;
+      const ta = inspector.querySelector(`textarea[data-key="${btn.dataset.expandKey}"]`);
+      if (ta) openCodeEditor(btn.dataset.expandKey, btn.dataset.expandLabel, ta, node);
+    });
+
     // prevent global keys from firing when typing
     inspector.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -2365,13 +2435,51 @@
     });
   }
 
+  function openCodeEditor(key, label, sourceTextarea, node) {
+    const existing = document.getElementById('__code-editor');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.className = 'code-editor-overlay' + (state.panelOpen ? ' panel-open' : '');
+    overlay.id = '__code-editor';
+    overlay.innerHTML =
+      `<div class="ced-head">` +
+        `<span class="ced-title">${escapeHtml(node.title)} · ${escapeHtml(label)}</span>` +
+        `<span class="ced-hint"><kbd>⌘/ctrl</kbd><kbd>↵</kbd> save &nbsp;·&nbsp; <kbd>esc</kbd> discard</span>` +
+        `<button class="ced-done" id="__ced-done">done</button>` +
+        `<span class="ced-close" id="__ced-close">×</span>` +
+      `</div>` +
+      `<div class="ced-body">` +
+        `<textarea id="__ced-ta" spellcheck="false">${escapeHtml(sourceTextarea.value)}</textarea>` +
+      `</div>`;
+    document.body.appendChild(overlay);
+    const ta = overlay.querySelector('#__ced-ta');
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    const save = () => {
+      sourceTextarea.value = ta.value;
+      sourceTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const close = () => overlay.remove();
+    const saveAndClose = () => { save(); close(); };
+    overlay.querySelector('#__ced-done').addEventListener('click', saveAndClose);
+    overlay.querySelector('#__ced-close').addEventListener('click', close);
+    overlay.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); saveAndClose(); }
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    });
+  }
+
   function fieldHtml(f, val) {
     const v = val == null ? '' : val;
     if (f.type === 'textarea') {
-      return `<div class="field">
-        <label>${f.label}</label>
-        <textarea data-key="${f.key}">${escapeHtml(v)}</textarea>
-      </div>`;
+      return `<div class="field">` +
+        `<div class="field-label-row">` +
+          `<label>${f.label}</label>` +
+          `<button class="field-expand-btn" data-expand-key="${f.key}" data-expand-label="${escapeHtml(f.label)}" title="Full-window editor">↗</button>` +
+        `</div>` +
+        `<textarea data-key="${f.key}">${escapeHtml(v)}</textarea>` +
+      `</div>`;
     }
     if (f.type === 'select') {
       return `<div class="field">
@@ -2397,6 +2505,8 @@
     if (el) el.remove();
     const bd = document.getElementById('__inspector-backdrop');
     if (bd) bd.remove();
+    const ced = document.getElementById('__code-editor');
+    if (ced) ced.remove();
   }
 
   // ---------- pan ----------
