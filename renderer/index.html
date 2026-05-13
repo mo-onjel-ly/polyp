@@ -161,16 +161,94 @@
     transition: left 0.24s cubic-bezier(.4,.0,.2,1), top 0.24s cubic-bezier(.4,.0,.2,1);
   }
 
+  /* ---------- side panel ---------- */
+  .side-panel {
+    position: fixed;
+    left: 0; top: 32px; bottom: 22px;
+    width: 200px;
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    z-index: 50;
+    transform: translateX(-201px);
+    transition: transform 0.18s cubic-bezier(.4,0,.2,1);
+  }
+  .side-panel.open { transform: translateX(0); }
+
+  .sp-head {
+    display: flex; align-items: center;
+    padding: 0 8px 0 10px;
+    height: 32px; flex-shrink: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .sp-head-label {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-mute);
+    flex: 1;
+  }
+  .sp-add-btn {
+    background: transparent; border: 1px solid var(--line);
+    color: var(--text-mute); cursor: pointer;
+    font-family: inherit; font-size: 15px; line-height: 1;
+    width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 2px; padding: 0; flex-shrink: 0;
+    transition: color 0.08s, border-color 0.08s;
+  }
+  .sp-add-btn:hover { color: var(--text); border-color: var(--line-hi); }
+
+  .sp-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+
+  .sp-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 5px 10px; cursor: pointer;
+    font-size: 11px; color: var(--text-dim);
+    border-left: 2px solid transparent;
+    transition: background 0.06s, color 0.06s;
+    position: relative;
+  }
+  .sp-item:hover { background: var(--panel-hi); color: var(--text); }
+  .sp-item.active {
+    background: var(--panel-hi); color: var(--text);
+    border-left-color: var(--ok);
+  }
+  .sp-item-name {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sp-item.universe .sp-item-name { color: var(--text-mute); font-style: italic; }
+  .sp-item.active.universe .sp-item-name { color: var(--text-dim); }
+  .sp-item-count {
+    font-size: 9px; color: var(--text-mute);
+    background: var(--bg); border: 1px solid var(--line);
+    border-radius: 2px; padding: 1px 4px; flex-shrink: 0;
+  }
+  .sp-item-del {
+    background: transparent; border: none;
+    color: transparent; cursor: pointer;
+    font-size: 13px; line-height: 1; padding: 0; flex-shrink: 0;
+    transition: color 0.08s;
+  }
+  .sp-item:hover .sp-item-del { color: var(--text-mute); }
+  .sp-item-del:hover { color: var(--danger) !important; }
+  .sp-rename-input {
+    flex: 1; background: var(--bg); border: 1px solid var(--line-hi);
+    color: var(--text); font-family: inherit; font-size: 11px;
+    padding: 1px 3px; outline: none; min-width: 0;
+  }
+
   /* ---------- canvas ---------- */
   .canvas {
     position: absolute; inset: 32px 0 22px 0;
+    left: 0;
     overflow: hidden;
     cursor: grab;
     background:
       radial-gradient(ellipse at 50% 30%, #101217 0%, var(--bg) 70%);
     touch-action: none;
     -webkit-touch-callout: none;
+    transition: left 0.18s cubic-bezier(.4,0,.2,1);
   }
+  .canvas.panel-open { left: 200px; }
   .canvas.panning { cursor: grabbing; }
   .canvas.connecting { cursor: crosshair; }
 
@@ -795,7 +873,17 @@
 </head>
 <body>
 
+<div class="side-panel" id="side-panel">
+  <div class="sp-head">
+    <span class="sp-head-label">graphs</span>
+    <button class="sp-add-btn" id="sp-add-btn" title="New graph">+</button>
+  </div>
+  <div class="sp-list" id="sp-list"></div>
+</div>
+
 <div class="topbar">
+  <button class="tb-btn" id="panel-btn" title="Graphs panel (g)">graphs</button>
+  <span class="sep"></span>
   <span class="brand">flowgraph</span>
   <span class="sep"></span>
   <span class="meta">graph · <b>untitled</b></span>
@@ -901,6 +989,10 @@
     viewSpecs: [null, null, null], // one spec per slot; null = not yet initialised
     activeView: 0,
     anchorMode: 'manual',  // 'manual' | 'topleft' | 'center'
+    subgraphs: new Map(),        // id → { id, name, nodeIds: Set }
+    activeSubgraphId: 'universe',
+    nextSubgraphId: 1,
+    panelOpen: false,
   };
 
   // ---------- action log ----------
@@ -1100,8 +1192,134 @@
   }
 
   function updateCounts() {
-    nodeCountEl.textContent = `nodes: ${state.nodes.size}`;
-    edgeCountEl.textContent = `edges: ${state.edges.size}`;
+    const vn = getVisibleNodeIds();
+    const ve = getVisibleEdgeIds();
+    nodeCountEl.textContent = `nodes: ${vn.size}`;
+    edgeCountEl.textContent = `edges: ${ve.size}`;
+  }
+
+  // ---------- subgraphs ----------
+
+  function isUniverseView() { return state.activeSubgraphId === 'universe'; }
+
+  function getVisibleNodeIds() {
+    if (isUniverseView()) return new Set(state.nodes.keys());
+    const sg = state.subgraphs.get(state.activeSubgraphId);
+    return sg ? new Set(sg.nodeIds) : new Set();
+  }
+
+  function getVisibleEdgeIds() {
+    const vis = getVisibleNodeIds();
+    const result = new Set();
+    state.edges.forEach((e, id) => {
+      if (vis.has(e.from) && vis.has(e.to)) result.add(id);
+    });
+    return result;
+  }
+
+  function createSubgraph(name) {
+    const id = `sg${state.nextSubgraphId++}`;
+    state.subgraphs.set(id, { id, name, nodeIds: new Set() });
+    rec('subgraph.create', { id, name });
+    renderSidePanel();
+    return id;
+  }
+
+  function deleteSubgraph(id) {
+    if (id === 'universe' || !state.subgraphs.has(id)) return;
+    rec('subgraph.delete', { id });
+    state.subgraphs.delete(id);
+    if (state.activeSubgraphId === id) switchSubgraph('universe');
+    else renderSidePanel();
+  }
+
+  function switchSubgraph(id) {
+    if (id !== 'universe' && !state.subgraphs.has(id)) return;
+    rec('subgraph.switch', { from: state.activeSubgraphId, to: id });
+    state.activeSubgraphId = id;
+    // Deselect if selected node is no longer visible
+    const vis = getVisibleNodeIds();
+    if (state.selected && !vis.has(state.selected)) deselect();
+    if (state.selectedEdge) {
+      const e = state.edges.get(state.selectedEdge);
+      if (!e || !vis.has(e.from) || !vis.has(e.to)) state.selectedEdge = null;
+    }
+    updateSubgraphVisibility();
+    renderSidePanel();
+    updateCounts();
+    anchorView();
+  }
+
+  function updateSubgraphVisibility() {
+    const vis = getVisibleNodeIds();
+    state.nodes.forEach((node, id) => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = vis.has(id) ? '' : 'none';
+    });
+    renderEdges();
+    updateStackCues();
+  }
+
+  function renderSidePanel() {
+    const list = document.getElementById('sp-list');
+    if (!list) return;
+    const rows = [{ id: 'universe', name: 'universe', count: state.nodes.size, pinned: true }];
+    state.subgraphs.forEach(sg => {
+      rows.push({ id: sg.id, name: sg.name, count: sg.nodeIds.size, pinned: false });
+    });
+    list.innerHTML = rows.map(r =>
+      `<div class="sp-item${r.id === state.activeSubgraphId ? ' active' : ''}${r.pinned ? ' universe' : ''}" data-id="${r.id}">` +
+        `<span class="sp-item-name">${escapeHtml(r.name)}</span>` +
+        `<span class="sp-item-count">${r.count}</span>` +
+        (!r.pinned ? `<button class="sp-item-del" data-id="${r.id}" title="Delete">×</button>` : '') +
+      `</div>`
+    ).join('');
+    list.querySelectorAll('.sp-item').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.classList.contains('sp-item-del')) return;
+        switchSubgraph(el.dataset.id);
+      });
+      if (!el.classList.contains('universe')) {
+        el.addEventListener('dblclick', e => {
+          if (e.target.classList.contains('sp-item-del')) return;
+          startRename(el);
+        });
+      }
+    });
+    list.querySelectorAll('.sp-item-del').forEach(btn => {
+      btn.addEventListener('click', e => { e.stopPropagation(); deleteSubgraph(btn.dataset.id); });
+    });
+  }
+
+  function startRename(el) {
+    const id = el.dataset.id;
+    const sg = state.subgraphs.get(id);
+    if (!sg) return;
+    const nameEl = el.querySelector('.sp-item-name');
+    const input = document.createElement('input');
+    input.className = 'sp-rename-input';
+    input.value = sg.name;
+    nameEl.replaceWith(input);
+    input.focus(); input.select();
+    const commit = () => {
+      const v = input.value.trim();
+      if (v) { sg.name = v; rec('subgraph.rename', { id, name: v }); }
+      renderSidePanel();
+    };
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { renderSidePanel(); }
+      e.stopPropagation();
+    });
+  }
+
+  function togglePanel() {
+    state.panelOpen = !state.panelOpen;
+    rec('panel.toggle', { open: state.panelOpen });
+    document.getElementById('side-panel').classList.toggle('open', state.panelOpen);
+    canvas.classList.toggle('panel-open', state.panelOpen);
+    document.getElementById('panel-btn').classList.toggle('on', state.panelOpen);
   }
 
   // ---------- flow coloring ----------
@@ -1162,6 +1380,10 @@
       flow: 0,
     };
     state.nodes.set(id, node);
+    if (!isUniverseView()) {
+      const sg = state.subgraphs.get(state.activeSubgraphId);
+      if (sg) sg.nodeIds.add(id);
+    }
     rec('node.create', { id, type, x, y, title: node.title });
     renderNode(node);
     recomputeFlows();
@@ -1257,6 +1479,7 @@
       if (e.from === id || e.to === id) state.edges.delete(e.id);
     });
     state.viewSpecs.forEach(s => { if (s) s.positions.delete(id); });
+    state.subgraphs.forEach(sg => sg.nodeIds.delete(id));
     state.nodes.delete(id);
     const el = document.getElementById(id);
     if (el) el.remove();
@@ -1268,6 +1491,7 @@
     updateSelInfo();
     updateCounts();
     maybeReflow();
+    renderSidePanel();
   }
 
   function toggleEnabled(id) {
@@ -1812,6 +2036,11 @@
 
   function tryConnect(fromId, toId) {
     if (fromId === toId) return false;
+    // in subgraph view, both nodes must be members of the current subgraph
+    if (!isUniverseView()) {
+      const sg = state.subgraphs.get(state.activeSubgraphId);
+      if (!sg || !sg.nodeIds.has(fromId) || !sg.nodeIds.has(toId)) return false;
+    }
     // no duplicate
     for (const e of state.edges.values()) {
       if (e.from === fromId && e.to === toId) return false;
@@ -1859,7 +2088,9 @@
     `;
     edgesSvg.appendChild(defs);
 
+    const _visNodes = getVisibleNodeIds();
     state.edges.forEach(e => {
+      if (!_visNodes.has(e.from) || !_visNodes.has(e.to)) return;
       const from = state.nodes.get(e.from);
       const to = state.nodes.get(e.to);
       if (!from || !to) return;
@@ -2314,6 +2545,7 @@
     { cmd: '/v3',      desc: 'switch to view spec 3',     kbd: '',  action() { closePal(); switchToView(2); } },
     { cmd: '/connect', desc: 'toggle connect mode',       kbd: 'c', action() { closePal(); setMode(state.mode === 'connect' ? 'normal' : 'connect'); } },
     { cmd: '/export',  desc: 'export action log (JSONL)', kbd: '',  action() { exportActionLog(); } },
+    { cmd: '/panel',   desc: 'toggle graphs panel',       kbd: 'g', action() { togglePanel(); } },
   ];
 
   const cmdpalWrap    = document.getElementById('cmdpal-wrap');
@@ -2594,6 +2826,11 @@
       return;
     }
 
+    if (e.key === 'g') {
+      togglePanel();
+      return;
+    }
+
     if (e.key === 'a') {
       toggleAutoLayout();
       return;
@@ -2752,6 +2989,16 @@
     tryConnect(d1.id, d2.id);
     tryConnect(d2.id, d3.id);
 
+    // Seed subgraphs — demonstrates the universe/subgraph model.
+    // a3 "parse stack traces" is intentionally in both log pipeline and
+    // user analytics to show that a node can be transcluded into multiple views.
+    const sgLog  = createSubgraph('log pipeline');
+    const sgAnal = createSubgraph('user analytics');
+    const sgSurv = createSubgraph('surveillance');
+    [a1, a2, a3, a4, b1, b2].forEach(n => state.subgraphs.get(sgLog).nodeIds.add(n.id));
+    [c1, c2, c3, c4, a3].forEach(n => state.subgraphs.get(sgAnal).nodeIds.add(n.id));
+    [d1, d2, d3].forEach(n => state.subgraphs.get(sgSurv).nodeIds.add(n.id));
+
     applyTransform();
     renderEdges();
   }
@@ -2763,6 +3010,14 @@
   updateStackCues();
 
   // wire up toolbar buttons
+  document.getElementById('panel-btn').addEventListener('click', togglePanel);
+  document.getElementById('sp-add-btn').addEventListener('click', () => {
+    const id = createSubgraph('new graph');
+    switchSubgraph(id);
+    // Immediately rename
+    const el = document.querySelector(`[data-id="${id}"]`);
+    if (el) startRename(el);
+  });
   document.getElementById('auto-layout-btn').addEventListener('click', toggleAutoLayout);
   document.getElementById('anchor-btn').addEventListener('click', cycleAnchor);
   for (let i = 0; i < 3; i++) {
@@ -2773,6 +3028,7 @@
   state.viewSpecs[0] = captureViewSpec();
   updateViewUI();
   updateAnchorUI();
+  renderSidePanel();
 
   // export action log on rec-btn click
   document.getElementById('rec-btn').addEventListener('click', exportActionLog);
