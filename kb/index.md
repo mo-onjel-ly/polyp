@@ -65,6 +65,7 @@ Node-based flowchart programming UI — Electron desktop app, dark, keyboard-fir
 | [[view-specs]] | Three named freeform layout slots |
 | [[stack-cues]] | Visual treatment of overlapping nodes |
 | [[canvas]] | Pan, zoom, coordinate spaces |
+| [[chrome]] | Topbar and statusbar — every element, live vs static, design rationale |
 
 ## Reference
 
