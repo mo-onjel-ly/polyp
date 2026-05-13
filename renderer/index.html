@@ -746,10 +746,18 @@
     background: var(--bg);
   }
   .upstream .row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
-  .upstream .dot { width:6px; height:6px; border-radius: 50%; }
-  .upstream .row b { color: var(--text); font-weight: 500; }
-  .upstream .row span { color: var(--text-mute); margin-left: auto; font-size: 9px; }
+  .upstream .dot { width:6px; height:6px; border-radius: 50%; flex-shrink: 0; }
+  .upstream .row b { color: var(--text); font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .upstream .row span { color: var(--text-mute); margin-left: auto; font-size: 9px; flex-shrink: 0; }
   .upstream .none { color: var(--text-mute); font-style: italic; }
+
+  /* upstream / downstream split pane */
+  .connections-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .connections-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .connections-col .upstream { flex: 1; }
+  .connections-label {
+    font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-mute);
+  }
 
   .inspector-foot {
     display: flex; gap: 6px; padding: 8px 10px;
@@ -2333,10 +2341,19 @@
     inspector.className = 'inspector';
     inspector.id = '__inspector';
 
-    // find upstream
-    const upstream = [...state.edges.values()]
-      .filter(e => e.to === id)
-      .map(e => state.nodes.get(e.from));
+    // find upstream and downstream neighbours
+    const upstream   = [...state.edges.values()].filter(e => e.to   === id).map(e => state.nodes.get(e.from)).filter(Boolean);
+    const downstream = [...state.edges.values()].filter(e => e.from === id).map(e => state.nodes.get(e.to  )).filter(Boolean);
+
+    const connRows = (nodes, emptyMsg) => nodes.length === 0
+      ? `<div class="none">${emptyMsg}</div>`
+      : nodes.map(n =>
+          `<div class="row">` +
+            `<span class="dot" style="background:hsl(${getHueForFlow(n.flow)})"></span>` +
+            `<b>${escapeHtml(n.title)}</b>` +
+            `<span>${n.id}</span>` +
+          `</div>`
+        ).join('');
 
     const typeSpec = NODE_TYPES[node.type];
 
@@ -2352,19 +2369,14 @@
         <span class="close" id="__close">×</span>
       </div>
       <div class="inspector-body">
-        <div class="field">
-          <label>upstream (${upstream.length})</label>
-          <div class="upstream">
-            ${upstream.length === 0
-              ? '<div class="none">no upstream — root of a flow</div>'
-              : upstream.map(u => `
-                <div class="row">
-                  <span class="dot" style="background: hsl(${getHueForFlow(u.flow)})"></span>
-                  <b>${escapeHtml(u.title)}</b>
-                  <span>${u.id} · ${u.type}</span>
-                </div>
-              `).join('')
-            }
+        <div class="connections-row">
+          <div class="connections-col">
+            <span class="connections-label">upstream (${upstream.length})</span>
+            <div class="upstream">${connRows(upstream, 'root — no upstream')}</div>
+          </div>
+          <div class="connections-col">
+            <span class="connections-label">downstream (${downstream.length})</span>
+            <div class="upstream">${connRows(downstream, 'sink — no downstream')}</div>
           </div>
         </div>
         ${typeSpec.fields.map(f => fieldHtml(f, node.config[f.key])).join('')}
