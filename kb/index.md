@@ -54,18 +54,19 @@ Node-based flowchart programming UI — Electron desktop app, dark, keyboard-fir
 
 ## Core concepts
 
-| Note | Summary |
-|------|---------|
-| [[nodes]] | The fundamental unit — script / lens / camera |
-| [[edges]] | Directed connections between node ports |
-| [[flows]] | Connected components, colour-coded |
-| [[ports]] | Input/output connection points; drag mechanics |
-| [[inspector]] | Per-node detail panel |
-| [[auto-layout]] | Computed layered-DAG positioning |
-| [[view-specs]] | Three named freeform layout slots |
-| [[stack-cues]] | Visual treatment of overlapping nodes |
-| [[canvas]] | Pan, zoom, coordinate spaces |
-| [[chrome]] | Topbar and statusbar — every element, live vs static, design rationale |
+| Note            | Summary                                                                |
+| --------------- | ---------------------------------------------------------------------- |
+| [[nodes]]       | The fundamental unit — script / lens / camera                          |
+| [[edges]]       | Directed connections between node ports                                |
+| [[flows]]       | Connected components, colour-coded                                     |
+| [[ports]]       | Input/output connection points; drag mechanics                         |
+| [[inspector]]   | Per-node detail panel                                                  |
+| [[auto-layout]] | Computed layered-DAG positioning                                       |
+| [[view-specs]]  | Three named freeform layout slots                                      |
+| [[stack-cues]]  | Visual treatment of overlapping nodes                                  |
+| [[canvas]]      | Pan, zoom, coordinate spaces                                           |
+| [[chrome]]      | Topbar and statusbar — every element, live vs static, design rationale |
+| [[graph-view]]  | Visual layer stack, rendering details, cursor states, flow highlight |
 
 ## Reference
 
