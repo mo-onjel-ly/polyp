@@ -725,6 +725,19 @@
     caret-color: var(--ok);
   }
   .cmdpal-input::placeholder { color: var(--text-mute); }
+  /* slash command results */
+  .cmdpal-results { display: none; border-top: 1px solid var(--line); }
+  .cmdpal-results.open { display: block; }
+  .cmdpal-result {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 7px 20px; cursor: pointer; font-size: 12px;
+    transition: background 0.06s ease;
+  }
+  .cmdpal-result:hover, .cmdpal-result.focused { background: var(--panel-hi); }
+  .r-cmd { color: var(--ok); font-weight: 500; min-width: 90px; flex-shrink: 0; letter-spacing: 0.02em; }
+  .r-desc { color: var(--text-dim); flex: 1; }
+  .r-kbd { color: var(--text-mute); font-size: 10px; flex-shrink: 0; }
+
   .cmdpal-hints {
     padding: 7px 20px 9px;
     border-top: 1px solid var(--line);
@@ -847,11 +860,15 @@
       autocomplete="off"
       spellcheck="false"
     />
+    <div class="cmdpal-results" id="cmdpal-results"></div>
     <div class="cmdpal-hints">
+      <span><kbd>/</kbd> commands</span>
+      <span><kbd>↵</kbd> run</span>
+      <span><kbd>↑↓</kbd> navigate</span>
+      <span><kbd>tab</kbd> complete</span>
       <span><kbd>shift</kbd><kbd>↵</kbd> send ↑</span>
-      <span><kbd>⌘/ctrl</kbd><kbd>shift</kbd><kbd>↵</kbd> send ↓</span>
-      <span><kbd>esc</kbd> clear · close</span>
-      <span><kbd>⌘/ctrl</kbd><kbd>p</kbd> close</span>
+      <span><kbd>⌘shift</kbd><kbd>↵</kbd> send ↓</span>
+      <span><kbd>esc</kbd> dismiss · close</span>
     </div>
   </div>
 </div>
@@ -1305,6 +1322,13 @@
       state.pan.y = cy - ((bounds.minY + bounds.maxY) / 2) * state.zoom;
     }
     applyTransform();
+  }
+
+  function setAnchorMode(mode) {
+    state.anchorMode = mode;
+    rec('anchor.set', { mode });
+    updateAnchorUI();
+    anchorView();
   }
 
   function cycleAnchor() {
@@ -2276,10 +2300,29 @@
 
   // ---------- command palette + toasts ----------
 
+  const COMMANDS = [
+    { cmd: '/layout',  desc: 'toggle auto-layout',        kbd: 'a', action() { closePal(); toggleAutoLayout(); } },
+    { cmd: '/center',  desc: 'anchor: center viewport',   kbd: '',  action() { closePal(); setAnchorMode('center'); } },
+    { cmd: '/topleft', desc: 'anchor: top-left corner',   kbd: '',  action() { closePal(); setAnchorMode('topleft'); } },
+    { cmd: '/manual',  desc: 'anchor: free pan',          kbd: '',  action() { closePal(); setAnchorMode('manual'); } },
+    { cmd: '/reset',   desc: 'reset view',                kbd: 'f', action() { closePal(); resetView(); } },
+    { cmd: '/new',     desc: 'new script node',           kbd: 'n', action() { closePal(); spawnAtView('script'); } },
+    { cmd: '/lens',    desc: 'new lens node',             kbd: 'N', action() { closePal(); spawnAtView('lens'); } },
+    { cmd: '/camera',  desc: 'new camera node',           kbd: 'm', action() { closePal(); spawnAtView('camera'); } },
+    { cmd: '/v1',      desc: 'switch to view spec 1',     kbd: '',  action() { closePal(); switchToView(0); } },
+    { cmd: '/v2',      desc: 'switch to view spec 2',     kbd: '',  action() { closePal(); switchToView(1); } },
+    { cmd: '/v3',      desc: 'switch to view spec 3',     kbd: '',  action() { closePal(); switchToView(2); } },
+    { cmd: '/connect', desc: 'toggle connect mode',       kbd: 'c', action() { closePal(); setMode(state.mode === 'connect' ? 'normal' : 'connect'); } },
+    { cmd: '/export',  desc: 'export action log (JSONL)', kbd: '',  action() { exportActionLog(); } },
+  ];
+
   const cmdpalWrap    = document.getElementById('cmdpal-wrap');
   const cmdpalInput   = document.getElementById('cmdpal-input');
+  const cmdResultsEl  = document.getElementById('cmdpal-results');
   const toastStackEl  = document.getElementById('toast-stack');
   let palOpen = false;
+  let cmdMatches = [];
+  let cmdFocusIdx = -1;
 
   function openPal() {
     rec('palette.open');
@@ -2292,8 +2335,78 @@
     rec('palette.close');
     palOpen = false;
     cmdpalWrap.classList.remove('cmdpal-open');
-    cmdpalInput.blur(); // return focus to canvas so keyboard shortcuts work again
+    cmdpalInput.blur();
+    hideCmdResults();
     setTimeout(() => { cmdpalInput.value = ''; }, 160);
+  }
+
+  // -- slash command support --
+
+  function cmdToken() {
+    const val = cmdpalInput.value;
+    const pos = cmdpalInput.selectionStart ?? val.length;
+    let start = pos;
+    while (start > 0 && val[start - 1] !== ' ') start--;
+    const tok = val.slice(start, pos);
+    return tok.startsWith('/') ? { token: tok, start, end: pos } : null;
+  }
+
+  function matchCommands(token) {
+    const q = token.toLowerCase();
+    if (q === '/') return COMMANDS;
+    return COMMANDS.filter(c => c.cmd.startsWith(q));
+  }
+
+  function renderCmdResults(matches) {
+    cmdMatches = matches;
+    cmdFocusIdx = matches.length ? 0 : -1;
+    if (!matches.length) { hideCmdResults(); return; }
+    cmdResultsEl.innerHTML = matches.map((c, i) =>
+      `<div class="cmdpal-result${i === 0 ? ' focused' : ''}" data-i="${i}">` +
+        `<span class="r-cmd">${c.cmd}</span>` +
+        `<span class="r-desc">${c.desc}</span>` +
+        (c.kbd ? `<span class="r-kbd">${c.kbd}</span>` : '') +
+      `</div>`
+    ).join('');
+    cmdResultsEl.classList.add('open');
+    cmdResultsEl.querySelectorAll('.cmdpal-result').forEach(row => {
+      row.addEventListener('mousedown', e => {
+        e.preventDefault(); // keep focus on input
+        execCmd(Number(row.dataset.i));
+      });
+    });
+  }
+
+  function updateCmdFocus() {
+    cmdResultsEl.querySelectorAll('.cmdpal-result').forEach((el, i) => {
+      el.classList.toggle('focused', i === cmdFocusIdx);
+    });
+  }
+
+  function hideCmdResults() {
+    cmdMatches = [];
+    cmdFocusIdx = -1;
+    cmdResultsEl.classList.remove('open');
+    cmdResultsEl.innerHTML = '';
+  }
+
+  function autocompleteToken(cmdName) {
+    const info = cmdToken();
+    if (!info) return;
+    const val = cmdpalInput.value;
+    cmdpalInput.value = val.slice(0, info.start) + cmdName + val.slice(info.end);
+    const newPos = info.start + cmdName.length;
+    cmdpalInput.setSelectionRange(newPos, newPos);
+    // refresh matches with the completed token
+    renderCmdResults(matchCommands(cmdName));
+  }
+
+  function execCmd(idx) {
+    const cmd = cmdMatches[idx];
+    if (!cmd) return;
+    rec('cmd.execute', { cmd: cmd.cmd });
+    hideCmdResults();
+    cmd.action();
   }
 
   function togglePal() {
@@ -2347,24 +2460,50 @@
     toast._t = setTimeout(dismiss, 8000);
   }
 
+  cmdpalInput.addEventListener('input', () => {
+    const info = cmdToken();
+    renderCmdResults(info ? matchCommands(info.token) : []);
+  });
+
   cmdpalInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation(); // prevent global handler from blurring + closing inspector
-      if (cmdpalInput.value.length > 0) {
-        cmdpalInput.value = '';
-      } else {
-        closePal();
-      }
+    // Arrow navigation through results
+    if (cmdMatches.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      if (e.key === 'ArrowDown') cmdFocusIdx = (cmdFocusIdx + 1) % cmdMatches.length;
+      else cmdFocusIdx = cmdFocusIdx <= 0 ? -1 : cmdFocusIdx - 1;
+      updateCmdFocus();
       return;
     }
+    // Tab: autocomplete current token with focused (or first) command
+    if (e.key === 'Tab' && cmdMatches.length) {
+      e.preventDefault();
+      autocompleteToken(cmdMatches[Math.max(0, cmdFocusIdx)].cmd);
+      return;
+    }
+    // Enter (no shift): execute focused command
+    if (e.key === 'Enter' && !e.shiftKey && cmdFocusIdx >= 0 && cmdMatches.length) {
+      e.preventDefault();
+      e.stopPropagation();
+      execCmd(cmdFocusIdx);
+      return;
+    }
+    // Escape: dismiss results first, then clear input, then close
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      if (cmdMatches.length) { hideCmdResults(); return; }
+      if (cmdpalInput.value.length > 0) { cmdpalInput.value = ''; return; }
+      closePal();
+      return;
+    }
+    // Shift+Enter: send as toast (always, regardless of results)
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       e.stopPropagation();
       const text = cmdpalInput.value.trim();
       if (!text) return;
-      // Cmd/Ctrl held alongside Shift+Enter → push down; plain Shift+Enter → push up
       addToast(text, (e.metaKey || e.ctrlKey) ? 'down' : 'up');
       cmdpalInput.value = '';
+      hideCmdResults();
     }
   });
 
