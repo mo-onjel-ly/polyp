@@ -1167,6 +1167,31 @@
   const viewIndicatorEl = document.getElementById('view-indicator');
 
   // ---------- types ----------
+
+  // Subtype field maps for ingress / egress
+  const INGRESS_SUBTYPES = ['http api','importer','exporter','scheduled ingestion','generator','script','custom request','rabbitmq queue'];
+  const INGRESS_SUBTYPE_FIELDS = {
+    'http api':           [{ key:'url',  label:'url', type:'text' }, { key:'method', label:'method', type:'select', options:['GET','POST','PUT','PATCH','DELETE'] }, { key:'headers', label:'headers', type:'textarea' }],
+    'importer':           [{ key:'source', label:'source path / url', type:'text' }, { key:'format', label:'format', type:'select', options:['json','csv','xml','ndjson','parquet'] }],
+    'exporter':           [{ key:'destination', label:'destination', type:'text' }, { key:'format', label:'format', type:'select', options:['json','csv','xml','ndjson'] }],
+    'scheduled ingestion':[{ key:'cron', label:'cron expression', type:'text' }, { key:'source', label:'source', type:'text' }],
+    'generator':          [{ key:'code', label:'generator function', type:'textarea' }, { key:'interval', label:'interval (ms)', type:'text' }],
+    'script':             [{ key:'lang', label:'language', type:'select', options:['js','python','bash'] }, { key:'code', label:'script body', type:'textarea' }],
+    'custom request':     [{ key:'method', label:'method', type:'select', options:['GET','POST','PUT','PATCH','DELETE'] }, { key:'url', label:'url', type:'text' }, { key:'headers', label:'headers', type:'textarea' }, { key:'body', label:'body', type:'textarea' }],
+    'rabbitmq queue':     [{ key:'connection', label:'connection url', type:'text' }, { key:'queue', label:'queue name', type:'text' }, { key:'routing_key', label:'routing key', type:'text' }],
+  };
+  const EGRESS_SUBTYPES = ['http post','S3','SFTP'];
+  const EGRESS_SUBTYPE_FIELDS = {
+    'http post': [{ key:'url', label:'url', type:'text' }, { key:'headers', label:'headers', type:'textarea' }, { key:'body_template', label:'body template', type:'textarea' }],
+    'S3':        [{ key:'s3_bucket', label:'bucket', type:'text' }, { key:'s3_key', label:'key / prefix', type:'text' }, { key:'s3_region', label:'region', type:'text' }, { key:'s3_credentials', label:'credentials env var', type:'text' }],
+    'SFTP':      [{ key:'sftp_host', label:'host', type:'text' }, { key:'sftp_port', label:'port', type:'text' }, { key:'sftp_path', label:'remote path', type:'text' }, { key:'sftp_credentials', label:'credentials env var', type:'text' }],
+  };
+
+  // Resolve fields — spec.fields may be an array (static) or function(config) → array (dynamic)
+  function typeFields(spec, config) {
+    return typeof spec.fields === 'function' ? spec.fields(config) : spec.fields;
+  }
+
   const NODE_TYPES = {
     script: {
       label: 'SCRIPT',
@@ -1204,6 +1229,44 @@
         { key: 'fps', label: 'fps', type: 'select', options: ['1', '5', '15', '30', '60'] },
         { key: 'mode', label: 'mode', type: 'select', options: ['stream', 'snapshot', 'motion', 'interval'] },
         { key: 'trigger', label: 'trigger', type: 'select', options: ['continuous', 'on-motion', 'on-signal', 'manual'] },
+      ],
+    },
+    agent: {
+      label: 'AGENT',
+      defaultTitle: 'agent',
+      defaultConfig: { model: 'claude', prompt: '', tools: '' },
+      fields: [
+        { key: 'model', label: 'model', type: 'select', options: ['claude', 'openai', 'ollama', 'custom'] },
+        { key: 'prompt', label: 'system prompt', type: 'textarea' },
+        { key: 'tools', label: 'tools', type: 'textarea' },
+      ],
+    },
+    ingress: {
+      label: 'INGRESS',
+      defaultTitle: 'data source',
+      defaultConfig: { subtype: 'http api', url: '', method: 'GET', headers: '', source: '', format: 'json', cron: '', code: '', lang: 'js', interval: '1000', connection: '', queue: '', routing_key: '', body: '', destination: '' },
+      fields: (config) => [
+        { key: 'subtype', label: 'ingress type', type: 'select', options: INGRESS_SUBTYPES },
+        ...(INGRESS_SUBTYPE_FIELDS[config.subtype] || []),
+      ],
+    },
+    egress: {
+      label: 'EGRESS',
+      defaultTitle: 'data sink',
+      defaultConfig: { subtype: 'http post', url: '', headers: '', body_template: '', s3_bucket: '', s3_key: '', s3_region: '', s3_credentials: '', sftp_host: '', sftp_port: '22', sftp_path: '/', sftp_credentials: '' },
+      fields: (config) => [
+        { key: 'subtype', label: 'egress type', type: 'select', options: EGRESS_SUBTYPES },
+        ...(EGRESS_SUBTYPE_FIELDS[config.subtype] || []),
+      ],
+    },
+    logger: {
+      label: 'LOGGER',
+      defaultTitle: 'logger',
+      defaultConfig: { format: 'json', destination: 'console', filter: '' },
+      fields: [
+        { key: 'format', label: 'format', type: 'select', options: ['json', 'csv', 'plaintext', 'ndjson'] },
+        { key: 'destination', label: 'destination', type: 'select', options: ['console', 'file', 'memory', 'stdout'] },
+        { key: 'filter', label: 'filter expression', type: 'text' },
       ],
     },
   };
@@ -1542,9 +1605,13 @@
   // most identity-defining config field — language for scripts, op for
   // lenses, mode for cameras.
   function nodeFootText(node) {
-    if (node.type === 'script') return node.config.lang || '';
-    if (node.type === 'lens') return node.config.op || '';
-    if (node.type === 'camera') return node.config.mode || '';
+    if (node.type === 'script')  return node.config.lang    || '';
+    if (node.type === 'lens')    return node.config.op      || '';
+    if (node.type === 'camera')  return node.config.mode    || '';
+    if (node.type === 'agent')   return node.config.model   || '';
+    if (node.type === 'ingress') return node.config.subtype || '';
+    if (node.type === 'egress')  return node.config.subtype || '';
+    if (node.type === 'logger')  return node.config.destination || '';
     return '';
   }
 
@@ -2428,7 +2495,14 @@
             <div class="upstream">${connRows(downstream, 'sink — no downstream')}</div>
           </div>
         </div>
-        ${typeSpec.fields.map(f => fieldHtml(f, node.config[f.key])).join('')}
+        ${(() => {
+          const all = typeFields(typeSpec, node.config);
+          const sub = all.find(f => f.key === 'subtype');
+          const rest = all.filter(f => f.key !== 'subtype');
+          if (sub) return fieldHtml(sub, node.config[sub.key]) +
+            `<div id="__dynamic-fields">${rest.map(f => fieldHtml(f, node.config[f.key])).join('')}</div>`;
+          return all.map(f => fieldHtml(f, node.config[f.key])).join('');
+        })()}
       </div>
       <div class="inspector-foot">
         <span class="key"><kbd>esc</kbd> close</span>
@@ -2468,12 +2542,13 @@
     titleInput.focus();
     titleInput.select();
 
-    typeSpec.fields.forEach(f => {
+    typeFields(typeSpec, node.config).forEach(f => {
       const input = inspector.querySelector(`[data-key="${f.key}"]`);
       if (input) {
         input.addEventListener('input', (e) => {
           node.config[f.key] = e.target.value;
           refreshNodeEl(node);
+          if (f.key === 'subtype') rerenderDynamicFields(inspector, typeSpec, node);
         });
       }
     });
@@ -2520,6 +2595,18 @@
         e.stopPropagation();
       }
       // don't stop propagation for everything or we lose typing; only escape
+    });
+  }
+
+  function rerenderDynamicFields(inspector, typeSpec, node) {
+    const container = inspector.querySelector('#__dynamic-fields');
+    if (!container) return;
+    const all = typeFields(typeSpec, node.config);
+    const rest = all.filter(f => f.key !== 'subtype');
+    container.innerHTML = rest.map(f => fieldHtml(f, node.config[f.key])).join('');
+    rest.forEach(f => {
+      const input = container.querySelector(`[data-key="${f.key}"]`);
+      if (input) input.addEventListener('input', e => { node.config[f.key] = e.target.value; refreshNodeEl(node); });
     });
   }
 
@@ -2768,9 +2855,13 @@
     { cmd: '/topleft', desc: 'anchor: top-left corner',   kbd: '',  action() { closePal(); setAnchorMode('topleft'); } },
     { cmd: '/manual',  desc: 'anchor: free pan',          kbd: '',  action() { closePal(); setAnchorMode('manual'); } },
     { cmd: '/reset',   desc: 'reset view',                kbd: 'f', action() { closePal(); resetView(); } },
-    { cmd: '/new',     desc: 'new script node',           kbd: 'n', action() { closePal(); spawnAtView('script'); } },
-    { cmd: '/lens',    desc: 'new lens node',             kbd: 'N', action() { closePal(); spawnAtView('lens'); } },
-    { cmd: '/camera',  desc: 'new camera node',           kbd: 'm', action() { closePal(); spawnAtView('camera'); } },
+    { cmd: '/new',      desc: 'new script node',           kbd: 'n', action() { closePal(); spawnAtView('script'); } },
+    { cmd: '/lens',     desc: 'new lens node',             kbd: 'N', action() { closePal(); spawnAtView('lens'); } },
+    { cmd: '/camera',   desc: 'new camera node',           kbd: 'm', action() { closePal(); spawnAtView('camera'); } },
+    { cmd: '/agent',    desc: 'new agent node',            kbd: '',  action() { closePal(); spawnAtView('agent'); } },
+    { cmd: '/ingress',  desc: 'new ingress node',          kbd: '',  action() { closePal(); spawnAtView('ingress'); } },
+    { cmd: '/egress',   desc: 'new egress node',           kbd: '',  action() { closePal(); spawnAtView('egress'); } },
+    { cmd: '/logger',   desc: 'new logger node',           kbd: '',  action() { closePal(); spawnAtView('logger'); } },
     { cmd: '/v1',      desc: 'switch to view spec 1',     kbd: '',  action() { closePal(); switchToView(0); } },
     { cmd: '/v2',      desc: 'switch to view spec 2',     kbd: '',  action() { closePal(); switchToView(1); } },
     { cmd: '/v3',      desc: 'switch to view spec 3',     kbd: '',  action() { closePal(); switchToView(2); } },
