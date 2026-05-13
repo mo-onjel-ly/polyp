@@ -1,7 +1,6 @@
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
-// Stub — expand this to expose native APIs to the renderer as the app grows.
-// e.g.: contextBridge.exposeInMainWorld('polyp', { saveGraph, loadGraph })
 contextBridge.exposeInMainWorld('polyp', {
   version: process.versions.electron,
+  gh: (args) => ipcRenderer.invoke('gh', args),
 });

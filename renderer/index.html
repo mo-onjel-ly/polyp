@@ -674,6 +674,45 @@
   }
   .field-expand-btn:hover { color: var(--text); border-color: var(--line-hi); }
 
+  /* ---------- repo picker ---------- */
+  .repo-row { display: flex; gap: 0; }
+  .repo-row input {
+    flex: 1; min-width: 0;
+    background: var(--bg); border: 1px solid var(--line); border-right: none;
+    color: var(--text); font-family: inherit; font-size: 11px;
+    padding: 6px 8px; border-radius: 3px 0 0 3px; outline: none;
+  }
+  .repo-row input:focus { border-color: var(--line-hi); }
+  .repo-browse-btn {
+    background: var(--panel-hi); border: 1px solid var(--line);
+    color: var(--text-dim); cursor: pointer;
+    font-family: inherit; font-size: 10px; letter-spacing: 0.06em;
+    padding: 0 10px; border-radius: 0 3px 3px 0;
+    transition: background 0.08s, color 0.08s; white-space: nowrap;
+  }
+  .repo-browse-btn:hover { background: var(--line-hi); color: var(--text); }
+  .repo-browse-btn:disabled { opacity: 0.45; cursor: wait; }
+  .repo-dropdown {
+    position: fixed; z-index: 900;
+    background: rgba(12,13,16,0.98); border: 1px solid var(--line-hi);
+    border-radius: 4px; padding: 4px 0;
+    max-height: 200px; overflow-y: auto;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.65);
+    font-size: 11px; min-width: 220px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  }
+  .repo-dropdown-item { padding: 5px 12px; cursor: pointer; color: var(--text-dim); }
+  .repo-dropdown-item:hover { background: var(--panel-hi); color: var(--text); }
+  .repo-dropdown-empty { padding: 5px 12px; color: var(--text-mute); font-style: italic; }
+
+  /* ---------- kb sources row ---------- */
+  .kb-sources-row {
+    display: flex; align-items: center;
+    padding: 4px 2px 8px; margin-bottom: 4px;
+    border-bottom: 1px solid var(--line);
+  }
+  .kb-sources-label { flex: 1; font-size: 10px; color: var(--text-dim); letter-spacing: 0.02em; }
+
   /* ---------- full-window code editor ---------- */
   .code-editor-overlay {
     position: fixed;
@@ -1132,9 +1171,10 @@
     script: {
       label: 'SCRIPT',
       defaultTitle: 'custom script',
-      defaultConfig: { code: '// upstream inputs arrive as `inputs[]`\n// return the output value\nreturn inputs[0];', lang: 'js' },
+      defaultConfig: { code: '// upstream inputs arrive as `inputs[]`\n// return the output value\nreturn inputs[0];', lang: 'js', repo: '' },
       fields: [
         { key: 'lang', label: 'language', type: 'select', options: ['js', 'python', 'bash'] },
+        { key: 'repo', label: 'github repo', type: 'repo' },
         { key: 'code', label: 'script body', type: 'textarea' },
       ],
     },
@@ -1447,6 +1487,7 @@
       config: { ...typeSpec.defaultConfig, ...(opts.config || {}) },
       status: opts.status || 'idle',
       enabled: opts.enabled !== false,
+      kbSources: opts.kbSources || false,
       flow: 0,
     };
     state.nodes.set(id, node);
@@ -2369,6 +2410,14 @@
         <span class="close" id="__close">×</span>
       </div>
       <div class="inspector-body">
+        <div class="kb-sources-row">
+          <span class="kb-sources-label">knowledge base sources</span>
+          <button class="toggle ${node.kbSources ? 'on' : 'off'}" id="__kb-toggle"
+            title="${node.kbSources ? 'enabled — click to disable' : 'disabled — click to enable'}">
+            <span class="track"><span class="knob"></span></span>
+            <span class="label">${node.kbSources ? 'on' : 'off'}</span>
+          </button>
+        </div>
         <div class="connections-row">
           <div class="connections-col">
             <span class="connections-label">upstream (${upstream.length})</span>
@@ -2429,6 +2478,33 @@
       }
     });
 
+    // KB sources toggle
+    const kbToggle = inspector.querySelector('#__kb-toggle');
+    if (kbToggle) {
+      kbToggle.addEventListener('click', () => {
+        node.kbSources = !node.kbSources;
+        const on = node.kbSources;
+        kbToggle.className = 'toggle ' + (on ? 'on' : 'off');
+        kbToggle.title = on ? 'enabled — click to disable' : 'disabled — click to enable';
+        kbToggle.querySelector('.label').textContent = on ? 'on' : 'off';
+        rec('node.kb_sources', { id: node.id, enabled: on });
+      });
+    }
+
+    // repo browse button
+    inspector.addEventListener('click', async e => {
+      const btn = e.target.closest('.repo-browse-btn');
+      if (!btn) return;
+      if (!window.polyp?.gh) { return; }
+      btn.disabled = true; btn.textContent = '…';
+      try {
+        const res = await window.polyp.gh(['repo', 'list', '--json', 'nameWithOwner', '--limit', '50']);
+        const repos = res.ok ? JSON.parse(res.stdout).map(r => r.nameWithOwner) : [];
+        showRepoDropdown(btn, repos, btn.dataset.browseKey, inspector, node);
+      } catch (_) {}
+      btn.disabled = false; btn.textContent = 'browse ▾';
+    });
+
     // expand button → full-window editor
     inspector.addEventListener('click', e => {
       const btn = e.target.closest('.field-expand-btn');
@@ -2445,6 +2521,30 @@
       }
       // don't stop propagation for everything or we lose typing; only escape
     });
+  }
+
+  function showRepoDropdown(btn, repos, fieldKey, inspector, node) {
+    document.querySelectorAll('.repo-dropdown').forEach(d => d.remove());
+    const dropdown = document.createElement('div');
+    dropdown.className = 'repo-dropdown';
+    dropdown.innerHTML = repos.length
+      ? repos.map(r => `<div class="repo-dropdown-item" data-repo="${escapeHtml(r)}">${escapeHtml(r)}</div>`).join('')
+      : `<div class="repo-dropdown-empty">no repos found</div>`;
+    const rect = btn.getBoundingClientRect();
+    dropdown.style.top  = `${rect.bottom + 2}px`;
+    dropdown.style.left = `${rect.left}px`;
+    document.body.appendChild(dropdown);
+    dropdown.querySelectorAll('.repo-dropdown-item').forEach(item => {
+      item.addEventListener('mousedown', e => {
+        e.preventDefault();
+        const input = inspector.querySelector(`input[data-key="${fieldKey}"]`);
+        if (input) { input.value = item.dataset.repo; input.dispatchEvent(new Event('input', { bubbles: true })); }
+        dropdown.remove();
+      });
+    });
+    setTimeout(() => document.addEventListener('click', function c() {
+      dropdown.remove(); document.removeEventListener('click', c);
+    }, { once: true }), 0);
   }
 
   function openCodeEditor(key, label, sourceTextarea, node) {
@@ -2484,6 +2584,15 @@
 
   function fieldHtml(f, val) {
     const v = val == null ? '' : val;
+    if (f.type === 'repo') {
+      return `<div class="field">` +
+        `<label>${f.label}</label>` +
+        `<div class="repo-row">` +
+          `<input data-key="${f.key}" value="${escapeHtml(v)}" placeholder="owner/repo" spellcheck="false" />` +
+          `<button class="repo-browse-btn" data-browse-key="${f.key}" title="Browse your GitHub repos">browse ▾</button>` +
+        `</div>` +
+      `</div>`;
+    }
     if (f.type === 'textarea') {
       return `<div class="field">` +
         `<div class="field-label-row">` +

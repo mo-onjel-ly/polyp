@@ -1,5 +1,23 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 const path = require('path');
+
+const execFileAsync = promisify(execFile);
+
+// gh IPC — runs `gh <args>` and returns { ok, stdout, stderr }
+// Args is a string array; using execFile avoids shell injection.
+ipcMain.handle('gh', async (_event, args) => {
+  if (!Array.isArray(args) || args.some(a => typeof a !== 'string')) {
+    return { ok: false, error: 'invalid args' };
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync('gh', args, { timeout: 15000 });
+    return { ok: true, stdout, stderr };
+  } catch (err) {
+    return { ok: false, error: err.message, stderr: err.stderr || '' };
+  }
+});
 
 function createWindow() {
   const win = new BrowserWindow({
