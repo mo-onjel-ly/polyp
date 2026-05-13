@@ -199,6 +199,7 @@
   },
   "active": "8a5b0a069e69f102",
   "lastOpenFiles": [
+    "subgraphs.md",
     "graph-view.md",
     "chrome.md",
     "index.md",
@@ -223,7 +224,6 @@
     "todo.md",
     "tech-stack-research.md",
     "canvas.md",
-    "ports.md",
-    "reactions.md"
+    "ports.md"
   ]
 }
