@@ -674,6 +674,34 @@
   }
   .field-expand-btn:hover { color: var(--text); border-color: var(--line-hi); }
 
+  /* ---------- node type picker ---------- */
+  .type-picker {
+    position: fixed; z-index: 400;
+    background: rgba(12,13,16,0.98);
+    border: 1px solid var(--line-hi);
+    border-radius: 4px; padding: 4px;
+    min-width: 210px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.65);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    animation: pop 0.1s ease;
+    outline: none;
+  }
+  .type-picker-item {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 6px 8px; cursor: pointer;
+    font-size: 11px; border-radius: 2px; color: var(--text-dim);
+  }
+  .type-picker-item:hover, .type-picker-item.focused {
+    background: var(--panel-hi); color: var(--text);
+  }
+  .tp-label {
+    font-size: 9px; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: hsl(var(--flow)); min-width: 68px;
+  }
+  .type-picker-item.focused .tp-label,
+  .type-picker-item:hover .tp-label { filter: brightness(1.2); }
+  .tp-desc { color: var(--text-mute); font-size: 10px; flex: 1; }
+
   /* ---------- repo picker ---------- */
   .repo-row { display: flex; gap: 0; }
   .repo-row input {
@@ -2174,17 +2202,17 @@
               tryConnect(targetNode.id, pd.fromNode.id);
             }
           } else if (!targetNodeEl) {
-            // empty canvas: spawn child node
             const w = worldFromScreen(pt.x, pt.y);
             const childX = w.x - NODE_SIZE / 2;
             const childY = w.y - NODE_SIZE / 2;
-            const newNode = createNode('script', childX, childY);
-            if (pd.which === 'out') {
-              tryConnect(pd.fromNode.id, newNode.id);
-            } else {
-              tryConnect(newNode.id, pd.fromNode.id);
-            }
-            select(newNode.id);
+            const fromNodeId = pd.fromNode.id;
+            const which = pd.which;
+            showTypePicker(childX, childY, type => {
+              const newNode = createNode(type, childX, childY);
+              if (which === 'out') tryConnect(fromNodeId, newNode.id);
+              else tryConnect(newNode.id, fromNodeId);
+              select(newNode.id);
+            });
           }
           renderEdges();
         },
@@ -2598,6 +2626,83 @@
     });
   }
 
+  // ---------- node type picker ----------
+
+  const TYPE_PICKER_ORDER = ['ingress', 'agent', 'script', 'lens', 'egress', 'logger', 'camera'];
+  const TYPE_PICKER_DESC  = {
+    script:  'custom code',
+    lens:    'view / filter',
+    camera:  'video / image',
+    agent:   'AI agent',
+    ingress: 'data source',
+    egress:  'data sink',
+    logger:  'output / record',
+  };
+
+  function showTypePicker(wx, wy, onSelect) {
+    document.getElementById('__type-picker')?._close?.();
+
+    const screen = screenFromWorld(wx + NODE_SIZE / 2, wy + NODE_SIZE / 2);
+    let focusIdx = 0;
+
+    const backdrop = document.createElement('div');
+    backdrop.style.cssText = 'position:fixed;inset:0;z-index:399;';
+
+    const picker = document.createElement('div');
+    picker.className = 'type-picker';
+    picker.id = '__type-picker';
+    picker.setAttribute('tabindex', '-1');
+    picker.innerHTML = TYPE_PICKER_ORDER.map((type, i) => {
+      const spec = NODE_TYPES[type];
+      return `<div class="type-picker-item${i === 0 ? ' focused' : ''}" data-type="${type}" data-idx="${i}" style="--flow:var(--f${i % 6})">` +
+        `<span class="tp-label">${spec.label}</span>` +
+        `<span class="tp-desc">${TYPE_PICKER_DESC[type]}</span>` +
+      `</div>`;
+    }).join('');
+
+    // Position near spawn point, clamped to viewport
+    const PAD = 8, W = 220, H = TYPE_PICKER_ORDER.length * 32 + 8;
+    let left = screen.x, top = screen.y;
+    if (left + W > window.innerWidth  - PAD) left = screen.x - W;
+    if (top  + H > window.innerHeight - 22 - PAD) top = screen.y - H;
+    left = Math.max(PAD, left);
+    top  = Math.max(32 + PAD, top);
+    picker.style.left = `${left}px`;
+    picker.style.top  = `${top}px`;
+
+    const updateFocus = () => {
+      picker.querySelectorAll('.type-picker-item').forEach((el, i) =>
+        el.classList.toggle('focused', i === focusIdx));
+    };
+
+    const commit = (type) => {
+      backdrop.remove();
+      picker.remove();
+      if (type) onSelect(type);
+    };
+
+    picker._close = () => commit(null);
+
+    picker.addEventListener('keydown', e => {
+      e.stopPropagation();
+      if (e.key === 'ArrowDown')  { e.preventDefault(); focusIdx = (focusIdx + 1) % TYPE_PICKER_ORDER.length; updateFocus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); focusIdx = (focusIdx - 1 + TYPE_PICKER_ORDER.length) % TYPE_PICKER_ORDER.length; updateFocus(); }
+      else if (e.key === 'Enter')   { commit(TYPE_PICKER_ORDER[focusIdx]); }
+      else if (e.key === 'Escape')  { commit(null); }
+    });
+
+    picker.querySelectorAll('.type-picker-item').forEach(el => {
+      el.addEventListener('click', () => commit(el.dataset.type));
+      el.addEventListener('mouseover', () => { focusIdx = Number(el.dataset.idx); updateFocus(); });
+    });
+
+    backdrop.addEventListener('mousedown', () => commit(null));
+
+    document.body.appendChild(backdrop);
+    document.body.appendChild(picker);
+    picker.focus();
+  }
+
   function rerenderDynamicFields(inspector, typeSpec, node) {
     const container = inspector.querySelector('#__dynamic-fields');
     if (!container) return;
@@ -2855,13 +2960,7 @@
     { cmd: '/topleft', desc: 'anchor: top-left corner',   kbd: '',  action() { closePal(); setAnchorMode('topleft'); } },
     { cmd: '/manual',  desc: 'anchor: free pan',          kbd: '',  action() { closePal(); setAnchorMode('manual'); } },
     { cmd: '/reset',   desc: 'reset view',                kbd: 'f', action() { closePal(); resetView(); } },
-    { cmd: '/new',      desc: 'new script node',           kbd: 'n', action() { closePal(); spawnAtView('script'); } },
-    { cmd: '/lens',     desc: 'new lens node',             kbd: 'N', action() { closePal(); spawnAtView('lens'); } },
-    { cmd: '/camera',   desc: 'new camera node',           kbd: 'm', action() { closePal(); spawnAtView('camera'); } },
-    { cmd: '/agent',    desc: 'new agent node',            kbd: '',  action() { closePal(); spawnAtView('agent'); } },
-    { cmd: '/ingress',  desc: 'new ingress node',          kbd: '',  action() { closePal(); spawnAtView('ingress'); } },
-    { cmd: '/egress',   desc: 'new egress node',           kbd: '',  action() { closePal(); spawnAtView('egress'); } },
-    { cmd: '/logger',   desc: 'new logger node',           kbd: '',  action() { closePal(); spawnAtView('logger'); } },
+    { cmd: '/new',     desc: 'new node — pick type',       kbd: 'n', action() { closePal(); spawnAtView(); } },
     { cmd: '/v1',      desc: 'switch to view spec 1',     kbd: '',  action() { closePal(); switchToView(0); } },
     { cmd: '/v2',      desc: 'switch to view spec 2',     kbd: '',  action() { closePal(); switchToView(1); } },
     { cmd: '/v3',      desc: 'switch to view spec 3',     kbd: '',  action() { closePal(); switchToView(2); } },
@@ -3072,6 +3171,9 @@
       return;
     }
 
+    // suppress while type picker is open (picker handles its own keys)
+    if (document.getElementById('__type-picker')) return;
+
     // if user is typing in inspector, don't intercept
     const ae = document.activeElement;
     if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) {
@@ -3109,16 +3211,8 @@
       return;
     }
 
-    if (e.key === 'n') {
-      spawnAtView('script');
-      return;
-    }
-    if (e.key === 'N') {
-      spawnAtView('lens');
-      return;
-    }
-    if (e.key === 'm') {
-      spawnAtView('camera');
+    if (e.key === 'n' || e.key === 'N' || e.key === 'm') {
+      spawnAtView();
       return;
     }
 
@@ -3237,11 +3331,12 @@
     }
   }
 
-  function spawnAtView(type) {
+  function spawnAtView() {
     const rect = canvas.getBoundingClientRect();
     let wx, wy;
-    if (state.selected) {
-      const cur = state.nodes.get(state.selected);
+    const fromId = state.selected; // capture before picker opens
+    if (fromId && state.nodes.has(fromId)) {
+      const cur = state.nodes.get(fromId);
       wx = cur.x + NODE_SIZE + 60;
       wy = cur.y;
     } else {
@@ -3249,11 +3344,11 @@
       wx = c.x - NODE_SIZE/2;
       wy = c.y - NODE_SIZE/2;
     }
-    const n = createNode(type, wx, wy);
-    if (state.selected && state.selected !== n.id) {
-      tryConnect(state.selected, n.id);
-    }
-    select(n.id);
+    showTypePicker(wx, wy, type => {
+      const n = createNode(type, wx, wy);
+      if (fromId && state.nodes.has(fromId) && fromId !== n.id) tryConnect(fromId, n.id);
+      select(n.id);
+    });
   }
 
   function resetView() {
