@@ -25,10 +25,10 @@ Current and near-future work items. For the full backlog see [[feature-ideas]] a
 ## Near-term (this sprint)
 
 ### App
-- [ ] **Vim keys in type picker** — `h`/`j`/`k`/`l` navigate the node type popup in addition to arrow keys (currently suppressed while picker is open)
-- [ ] **Save graph to `~/.polyp`** — persist graph state as JSON on every change (or explicit save). Location: `$POLYP_CONFIG_DIR` if set, otherwise `~/.polyp/`. Auto-load on startup. See [[feature-ideas#Near-term]] and [[roadmap#Milestone 5]].
-- [ ] **Keyboard shortcut config** — store all key bindings in `~/.polyp/shortcuts.json` so they can be changed without editing source. Load on startup; apply over defaults.
-- [ ] **Camera: device source dropdown** — populate the "device" field in the camera inspector with actual capture devices from `navigator.mediaDevices.enumerateDevices()` instead of the hardcoded list.
+- [x] **Vim keys in type picker** — `h`/`j`/`k`/`l` navigate the node type popup in addition to arrow keys *(2026-05-18)*
+- [x] **Save graph to `~/.polyp`** — JSON persistence, `$POLYP_CONFIG_DIR` override, auto-load on startup, 600ms debounce *(2026-05-18)*
+- [x] **Keyboard shortcut config** — `DEFAULT_SHORTCUTS` + `SHORTCUTS` + `matchesShortcut()`, loaded from `~/.polyp/shortcuts.json` on startup *(2026-05-18)*
+- [x] **Camera: device source dropdown** — `navigator.mediaDevices.enumerateDevices()` on inspector open, falls back to hardcoded list *(2026-05-18)*
 - [ ] **Fix z-index leak on stack exit** — `updateStackCues` leaves inline `zIndex` on nodes after they leave a stack (noted in chat-log)
 - [ ] **Node title tooltip** — show full title on hover when truncated
 - [ ] **Inspector: `node.edit` recording** — record field changes from the inspector

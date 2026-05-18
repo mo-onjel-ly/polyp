@@ -1194,6 +1194,21 @@
   const viewBtnsEl = document.getElementById('view-btns');
   const viewIndicatorEl = document.getElementById('view-indicator');
 
+  // ---------- camera device enumeration ----------
+  let cameraDeviceOptions = ['default', 'webcam:0', 'webcam:1', 'rtsp', 'file', 'screen'];
+
+  async function refreshCameraDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cams = devices.filter(d => d.kind === 'videoinput');
+      if (cams.length > 0) {
+        const discovered = cams.map(d => d.label || d.deviceId || 'camera');
+        cameraDeviceOptions = [...new Set(discovered), 'rtsp', 'file', 'screen'];
+      }
+    } catch (_) {}
+  }
+
   // ---------- types ----------
 
   // Subtype field maps for ingress / egress
@@ -1252,7 +1267,7 @@
         trigger: 'continuous',
       },
       fields: [
-        { key: 'source', label: 'device', type: 'select', options: ['default', 'webcam:0', 'webcam:1', 'rtsp', 'file', 'screen'] },
+        { key: 'source', label: 'device', type: 'select', options: () => cameraDeviceOptions },
         { key: 'resolution', label: 'resolution', type: 'select', options: ['320x240', '640x480', '1280x720', '1920x1080', '3840x2160'] },
         { key: 'fps', label: 'fps', type: 'select', options: ['1', '5', '15', '30', '60'] },
         { key: 'mode', label: 'mode', type: 'select', options: ['stream', 'snapshot', 'motion', 'interval'] },
@@ -1324,6 +1339,7 @@
     world.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.zoom})`;
     panInfoEl.textContent = `${Math.round(state.pan.x)}, ${Math.round(state.pan.y)}`;
     zoomInfoEl.textContent = `${Math.round(state.zoom * 100)}%`;
+    scheduleSave();
   }
 
   function setMode(m) {
@@ -1397,6 +1413,7 @@
     const ve = getVisibleEdgeIds();
     nodeCountEl.textContent = `nodes: ${vn.size}`;
     edgeCountEl.textContent = `edges: ${ve.size}`;
+    scheduleSave();
   }
 
   // ---------- subgraphs ----------
@@ -2570,6 +2587,18 @@
     titleInput.focus();
     titleInput.select();
 
+    // Camera: refresh actual device list and repopulate the source select
+    if (node.type === 'camera') {
+      refreshCameraDevices().then(() => {
+        const sel = inspector.querySelector('[data-key="source"]');
+        if (!sel) return;
+        const cur = node.config.source;
+        sel.innerHTML = cameraDeviceOptions.map(o =>
+          `<option value="${o}"${o === cur ? ' selected' : ''}>${o}</option>`
+        ).join('');
+      });
+    }
+
     typeFields(typeSpec, node.config).forEach(f => {
       const input = inspector.querySelector(`[data-key="${f.key}"]`);
       if (input) {
@@ -2685,8 +2714,8 @@
 
     picker.addEventListener('keydown', e => {
       e.stopPropagation();
-      if (e.key === 'ArrowDown')  { e.preventDefault(); focusIdx = (focusIdx + 1) % TYPE_PICKER_ORDER.length; updateFocus(); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); focusIdx = (focusIdx - 1 + TYPE_PICKER_ORDER.length) % TYPE_PICKER_ORDER.length; updateFocus(); }
+      if (e.key === 'ArrowDown' || e.key === 'j') { e.preventDefault(); focusIdx = (focusIdx + 1) % TYPE_PICKER_ORDER.length; updateFocus(); }
+      else if (e.key === 'ArrowUp' || e.key === 'k') { e.preventDefault(); focusIdx = (focusIdx - 1 + TYPE_PICKER_ORDER.length) % TYPE_PICKER_ORDER.length; updateFocus(); }
       else if (e.key === 'Enter')   { commit(TYPE_PICKER_ORDER[focusIdx]); }
       else if (e.key === 'Escape')  { commit(null); }
     });
@@ -2795,10 +2824,11 @@
       `</div>`;
     }
     if (f.type === 'select') {
+      const opts = typeof f.options === 'function' ? f.options() : f.options;
       return `<div class="field">
         <label>${f.label}</label>
         <select data-key="${f.key}">
-          ${f.options.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o}</option>`).join('')}
+          ${opts.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o}</option>`).join('')}
         </select>
       </div>`;
     }
@@ -3162,123 +3192,85 @@
 
   document.getElementById('cmdpal-backdrop').addEventListener('click', closePal);
 
+  // ---------- keyboard shortcuts config ----------
+  const DEFAULT_SHORTCUTS = {
+    'palette':       { key: 'p', meta: true },
+    'nav.left':      { key: 'h' },
+    'nav.down':      { key: 'j' },
+    'nav.up':        { key: 'k' },
+    'nav.right':     { key: 'l' },
+    'node.new':      { key: 'n' },
+    'node.delete':   { key: 'x' },
+    'node.toggle':   { key: 'd' },
+    'mode.connect':  { key: 'c' },
+    'layout.toggle': { key: 'a' },
+    'view.cycle':    { key: 'v' },
+    'view.reset':    { key: 'f' },
+    'view.reset2':   { key: '0' },
+    'panel.toggle':  { key: 'g' },
+    'inspect':       { key: 'Enter' },
+    'deselect':      { key: 'Escape' },
+  };
+  let SHORTCUTS = { ...DEFAULT_SHORTCUTS };
+
+  function matchesShortcut(e, action) {
+    const sc = SHORTCUTS[action];
+    if (!sc || e.key !== sc.key) return false;
+    const needMeta = !!sc.meta;
+    if (needMeta && !(e.metaKey || e.ctrlKey)) return false;
+    if (!needMeta && (e.metaKey || e.ctrlKey)) return false;
+    if (!!sc.shift !== e.shiftKey) return false;
+    return true;
+  }
+
   // ---------- keyboard ----------
   document.addEventListener('keydown', (e) => {
-    // cmd/ctrl+p: toggle command palette — fires regardless of focus
-    if (e.key === 'p' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
-      e.preventDefault();
-      togglePal();
-      return;
-    }
+    if (matchesShortcut(e, 'palette')) { e.preventDefault(); togglePal(); return; }
 
     // suppress while type picker is open (picker handles its own keys)
     if (document.getElementById('__type-picker')) return;
 
-    // if user is typing in inspector, don't intercept
+    // if user is typing in inspector/palette, don't intercept
     const ae = document.activeElement;
     if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT')) {
-      if (e.key === 'Escape') {
-        ae.blur();
-        closeInspector();
-      }
+      if (e.key === 'Escape') { ae.blur(); closeInspector(); }
       return;
     }
 
-    if (e.key === 'Escape') {
+    if (matchesShortcut(e, 'deselect')) {
       if (state.expanded) { closeInspector(); return; }
-      deselect();
-      return;
+      deselect(); return;
     }
-
-    if (e.key === 'Enter') {
+    if (matchesShortcut(e, 'inspect')) {
       if (!state.selected) {
-        // nothing selected: pick the top-left-most node so Enter has a target
         if (state.nodes.size > 0) {
           const first = [...state.nodes.values()].sort((a,b) => a.y - b.y || a.x - b.x)[0];
-          select(first.id);
-          centerOn(first);
+          select(first.id); centerOn(first);
         }
-      } else {
-        // already selected: expand the inspector
-        openInspector(state.selected);
-      }
+      } else { openInspector(state.selected); }
       return;
     }
-
-    if (e.key === 'h' || e.key === 'j' || e.key === 'k' || e.key === 'l') {
-      navDir(e.key);
-      e.preventDefault();
-      return;
-    }
-
-    if (e.key === 'n' || e.key === 'N' || e.key === 'm') {
-      spawnAtView();
-      return;
-    }
-
-    if (e.key === 'x') {
+    if (matchesShortcut(e, 'nav.left'))  { navDir('h'); e.preventDefault(); return; }
+    if (matchesShortcut(e, 'nav.down'))  { navDir('j'); e.preventDefault(); return; }
+    if (matchesShortcut(e, 'nav.up'))    { navDir('k'); e.preventDefault(); return; }
+    if (matchesShortcut(e, 'nav.right')) { navDir('l'); e.preventDefault(); return; }
+    if (matchesShortcut(e, 'node.new'))  { spawnAtView(); return; }
+    if (matchesShortcut(e, 'node.delete')) {
       if (state.selected) deleteNode(state.selected);
       else if (state.selectedEdge) {
         rec('edge.delete', { id: state.selectedEdge });
         state.edges.delete(state.selectedEdge);
         state.selectedEdge = null;
-        recomputeFlows();
-        refreshAllNodeStyles();
-        renderEdges();
-        updateCounts();
-        updateSelInfo();
-        maybeReflow();
+        recomputeFlows(); refreshAllNodeStyles(); renderEdges(); updateCounts(); updateSelInfo(); maybeReflow();
       }
       return;
     }
-
-    if (e.key === 'c') {
-      setMode(state.mode === 'connect' ? 'normal' : 'connect');
-      return;
-    }
-
-    if (e.key === 'd') {
-      if (state.selected) toggleEnabled(state.selected);
-      return;
-    }
-
-    if (e.key === 'g') {
-      togglePanel();
-      return;
-    }
-
-    if (e.key === 'a') {
-      toggleAutoLayout();
-      return;
-    }
-
-    if (e.key === 'v') {
-      switchToView((state.activeView + 1) % 3);
-      return;
-    }
-
-    if (e.key === 'f' || e.key === '0') {
-      resetView();
-      return;
-    }
-
-    if (e.key === '1') {
-      // cycle node type of selected
-      if (state.selected) {
-        const n = state.nodes.get(state.selected);
-        n.type = n.type === 'script' ? 'lens' : 'script';
-        const spec = NODE_TYPES[n.type];
-        n.config = { ...spec.defaultConfig };
-        refreshNodeEl(node => node.id === n.id);
-        // easier: full rerender of this node
-        const el = document.getElementById(n.id);
-        if (el) {
-          el.remove();
-          renderNode(n);
-          select(n.id);
-        }
-      }
-    }
+    if (matchesShortcut(e, 'mode.connect'))  { setMode(state.mode === 'connect' ? 'normal' : 'connect'); return; }
+    if (matchesShortcut(e, 'node.toggle'))   { if (state.selected) toggleEnabled(state.selected); return; }
+    if (matchesShortcut(e, 'panel.toggle'))  { togglePanel(); return; }
+    if (matchesShortcut(e, 'layout.toggle')) { toggleAutoLayout(); return; }
+    if (matchesShortcut(e, 'view.cycle'))    { switchToView((state.activeView + 1) % 3); return; }
+    if (matchesShortcut(e, 'view.reset') || matchesShortcut(e, 'view.reset2')) { resetView(); return; }
   });
 
   function navDir(key) {
@@ -3372,6 +3364,83 @@
       .replace(/"/g, '&quot;');
   }
 
+  // ---------- graph persistence ----------
+
+  let _saveTimer = null;
+  function scheduleSave() {
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(() => {
+      window.polyp?.config?.save('graph.json', serializeGraph());
+    }, 600);
+  }
+
+  function serializeGraph() {
+    return {
+      version: 1,
+      nodes: [...state.nodes.values()].map(n => ({
+        id: n.id, type: n.type, x: n.x, y: n.y,
+        title: n.title, config: { ...n.config },
+        status: n.status, enabled: n.enabled, kbSources: n.kbSources || false,
+      })),
+      edges: [...state.edges.values()].map(e => ({ id: e.id, from: e.from, to: e.to })),
+      subgraphs: [...state.subgraphs.values()].map(sg => ({
+        id: sg.id, name: sg.name, nodeIds: [...sg.nodeIds],
+      })),
+      activeSubgraphId: state.activeSubgraphId,
+      pan: { ...state.pan }, zoom: state.zoom,
+      anchorMode: state.anchorMode, activeView: state.activeView,
+      panelOpen: state.panelOpen,
+      nextNodeId: state.nextNodeId, nextEdgeId: state.nextEdgeId,
+      nextSubgraphId: state.nextSubgraphId,
+      viewSpecs: state.viewSpecs.map(s => s ? {
+        positions: [...s.positions.entries()], pan: { ...s.pan }, zoom: s.zoom,
+      } : null),
+    };
+  }
+
+  function restoreGraph(data) {
+    if (!data || data.version !== 1) return;
+    // Clear DOM nodes
+    state.nodes.forEach((_, id) => { const el = document.getElementById(id); if (el) el.remove(); });
+    state.nodes.clear(); state.edges.clear(); state.subgraphs.clear();
+    // Counters
+    state.nextNodeId    = data.nextNodeId    || 1;
+    state.nextEdgeId    = data.nextEdgeId    || 1;
+    state.nextSubgraphId= data.nextSubgraphId|| 1;
+    // Nodes
+    data.nodes.forEach(n => {
+      const node = { ...n, flow: 0 };
+      state.nodes.set(n.id, node);
+      renderNode(node);
+    });
+    // Edges
+    data.edges.forEach(e => state.edges.set(e.id, { ...e }));
+    // Subgraphs
+    (data.subgraphs || []).forEach(sg =>
+      state.subgraphs.set(sg.id, { id: sg.id, name: sg.name, nodeIds: new Set(sg.nodeIds) })
+    );
+    // View state
+    state.activeSubgraphId = data.activeSubgraphId || 'universe';
+    state.pan   = data.pan   || { x: 120, y: 80 };
+    state.zoom  = data.zoom  || 1;
+    state.anchorMode  = data.anchorMode  || 'manual';
+    state.activeView  = data.activeView  || 0;
+    state.panelOpen   = data.panelOpen   || false;
+    // View specs
+    if (data.viewSpecs) {
+      state.viewSpecs = data.viewSpecs.map(s => s ? {
+        positions: new Map(s.positions), pan: { ...s.pan }, zoom: s.zoom,
+      } : null);
+    }
+    // Recompute
+    recomputeFlows(); refreshAllNodeStyles(); applyTransform();
+    updateSubgraphVisibility(); renderSidePanel(); updateViewUI(); updateAnchorUI();
+    // Panel state
+    document.getElementById('side-panel').classList.toggle('open', state.panelOpen);
+    canvas.classList.toggle('panel-open', state.panelOpen);
+    document.getElementById('panel-btn').classList.toggle('on', state.panelOpen);
+  }
+
   // ---------- seed demo graph ----------
   function seed() {
     // flow A: ingest -> filter -> transform -> sink
@@ -3420,18 +3489,11 @@
     renderEdges();
   }
 
-  seed();
-  rec('session.start', { sessionId: actLog.sessionId });
-  recSnapshot();
-  applyTransform();
-  updateStackCues();
-
-  // wire up toolbar buttons
+  // wire up toolbar buttons (synchronous, before async init)
   document.getElementById('panel-btn').addEventListener('click', togglePanel);
   document.getElementById('sp-add-btn').addEventListener('click', () => {
     const id = createSubgraph('new graph');
     switchSubgraph(id);
-    // Immediately rename
     const el = document.querySelector(`[data-id="${id}"]`);
     if (el) startRename(el);
   });
@@ -3441,11 +3503,32 @@
     document.getElementById(`view-dot-${i}`).addEventListener('click', () => switchToView(i));
   }
 
-  // seed view-spec 0 from the initial graph state
-  state.viewSpecs[0] = captureViewSpec();
-  updateViewUI();
-  updateAnchorUI();
-  renderSidePanel();
+  // async startup: load shortcuts + saved graph (fall back to seed)
+  (async () => {
+    if (window.polyp?.config) {
+      const scRes = await window.polyp.config.load('shortcuts.json');
+      if (scRes.ok && scRes.data) Object.assign(SHORTCUTS, scRes.data);
+
+      const graphRes = await window.polyp.config.load('graph.json');
+      if (graphRes.ok && graphRes.data) {
+        restoreGraph(graphRes.data);
+        rec('session.start', { sessionId: actLog.sessionId });
+        recSnapshot();
+        updateStackCues();
+        return;
+      }
+    }
+    // No saved graph — seed
+    seed();
+    applyTransform();
+    updateStackCues();
+    state.viewSpecs[0] = captureViewSpec();
+    updateViewUI();
+    updateAnchorUI();
+    renderSidePanel();
+    rec('session.start', { sessionId: actLog.sessionId });
+    recSnapshot();
+  })();
 
   // export action log on rec-btn click
   document.getElementById('rec-btn').addEventListener('click', exportActionLog);

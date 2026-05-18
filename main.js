@@ -1,7 +1,33 @@
 const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const fs   = require('fs');
 const path = require('path');
+const os   = require('os');
+
+function getConfigDir() {
+  return process.env.POLYP_CONFIG_DIR || path.join(os.homedir(), '.polyp');
+}
+
+// Generic config file I/O — saves/loads JSON files in the config dir.
+ipcMain.handle('config:save', async (_event, filename, data) => {
+  const dir = getConfigDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, filename);
+  fs.writeFileSync(file, typeof data === 'string' ? data : JSON.stringify(data, null, 2), 'utf8');
+  return { ok: true, file };
+});
+
+ipcMain.handle('config:load', async (_event, filename) => {
+  const file = path.join(getConfigDir(), filename);
+  if (!fs.existsSync(file)) return { ok: false, reason: 'no file' };
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    return { ok: true, data: JSON.parse(raw) };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+});
 
 const execFileAsync = promisify(execFile);
 
