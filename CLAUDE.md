@@ -47,16 +47,21 @@ The graph model (nodes + directed flows) is the core primitive. Every capability
 ```
 polyp/
 ├── CLAUDE.md              ← this file
-├── main.js                ← Electron main process
-├── preload.js             ← contextBridge stub
-├── package.json           ← bun, electron@41
-├── bun.lock
-├── renderer/
-│   └── index.html         ← THE APP — single-file HTML/CSS/JS
+├── package.json           ← root scripts proxy (bun start → app/)
+├── app/                   ← Electron app (main process + renderer)
+│   ├── main.js            ← Electron main process
+│   ├── preload.js         ← contextBridge stub
+│   ├── package.json       ← bun, electron@41
+│   ├── bun.lock
+│   └── renderer/
+│       └── index.html     ← THE APP — single-file HTML/CSS/JS
 ├── kb/                    ← Obsidian vault (knowledge base)
 │   ├── index.md           ← MOC — start here
 │   ├── *.md               ← atomic concept/reference/design notes
 │   └── .obsidian/         ← Obsidian config (committed)
+├── tests/                 ← regression tests
+├── workstream/            ← private artifacts repo (gitignored)
+├── notes/                 ← scratch notes (gitignored)
 ├── README.md
 ├── CHANGELOG.md
 └── chat-log.md            ← summary of the original Claude.ai conversation
@@ -64,7 +69,7 @@ polyp/
 
 ### The app file
 
-All UI code lives in `renderer/index.html`. It is intentionally a single file — no bundler, no framework. When editing:
+All UI code lives in `app/renderer/index.html`. It is intentionally a single file — no bundler, no framework. When editing:
 - CSS is at the top (inside `<style>`)
 - HTML structure is in `<body>` (topbar, canvas, statusbar)
 - JS is at the bottom (one IIFE, `'use strict'`)
@@ -75,6 +80,7 @@ Key JS sections (search by comment header):
 - `// ---------- auto-layout ----------` — layered DAG algorithm
 - `// ---------- nodes ----------` — create, render, delete
 - `// ---------- flows ----------` — connected-component coloring
+- `// ---------- keyboard shortcuts config ----------` — shortcut table + matchesShortcut
 - `// ---------- keyboard ----------` — all key handlers
 
 ---
@@ -89,11 +95,12 @@ Key JS sections (search by comment header):
 | Fonts | JetBrains Mono / IBM Plex Mono (Google Fonts CDN) |
 | Node.js | v22 |
 
-**Run:**
+**Run** (from repo root):
 ```bash
-bun start       # open app
+bun start       # open app  (proxies to: cd app && bun start)
 bun run dev     # open app + Node inspector on :5858
 ```
+Or directly from `app/`: `cd app && bun start`
 
 ---
 
