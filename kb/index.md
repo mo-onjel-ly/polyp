@@ -68,6 +68,7 @@ Node-based flowchart programming UI — Electron desktop app, dark, keyboard-fir
 | [[chrome]]      | Topbar and statusbar — every element, live vs static, design rationale |
 | [[graph-view]]  | Visual layer stack, rendering details, cursor states, flow highlight |
 | [[subgraphs]]   | Universe model, membership sets, transclusion, graphs panel |
+| [[connections]] | GitHub (gh CLI) + Hugging Face auth design, credentials panel |
 
 ## Reference
 
