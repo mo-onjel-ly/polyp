@@ -1312,6 +1312,40 @@
         { key: 'filter', label: 'filter expression', type: 'text' },
       ],
     },
+    huggingface: {
+      label: 'HF',
+      defaultTitle: 'hugging face',
+      defaultConfig: { model: '', task: 'text-generation', endpoint: '', params: '{}' },
+      fields: [
+        { key: 'model', label: 'model id', type: 'text' },
+        { key: 'task', label: 'task', type: 'select', options: [
+          'text-generation', 'text2text-generation', 'summarization', 'translation',
+          'question-answering', 'fill-mask', 'text-classification', 'token-classification',
+          'zero-shot-classification', 'sentence-similarity', 'feature-extraction',
+          'image-classification', 'image-to-text', 'image-segmentation', 'object-detection',
+          'automatic-speech-recognition', 'audio-classification',
+        ]},
+        { key: 'endpoint', label: 'endpoint url', type: 'text' },
+        { key: 'params', label: 'parameters (json)', type: 'textarea' },
+      ],
+    },
+    yolo: {
+      label: 'YOLO',
+      defaultTitle: 'object detection',
+      defaultConfig: { model: 'yolov8n', confidence: '0.5', iou: '0.45', classes: '', runtime: 'onnx-web', output: 'boxes+labels' },
+      fields: [
+        { key: 'model', label: 'model', type: 'select', options: [
+          'yolov8n', 'yolov8s', 'yolov8m', 'yolov8l', 'yolov8x',
+          'yolov9c', 'yolov9e',
+          'yolo11n', 'yolo11s', 'yolo11m', 'yolo11l', 'yolo11x',
+        ]},
+        { key: 'confidence', label: 'confidence threshold', type: 'text' },
+        { key: 'iou', label: 'IoU threshold', type: 'text' },
+        { key: 'classes', label: 'filter classes (comma-sep)', type: 'text' },
+        { key: 'runtime', label: 'runtime', type: 'select', options: ['onnx-web', 'local-python', 'roboflow-api', 'ultralytics-api'] },
+        { key: 'output', label: 'output', type: 'select', options: ['boxes+labels', 'boxes+labels+scores', 'annotated-image', 'json'] },
+      ],
+    },
   };
 
   // ---------- helpers ----------
@@ -1656,7 +1690,9 @@
     if (node.type === 'agent')   return node.config.model   || '';
     if (node.type === 'ingress') return node.config.subtype || '';
     if (node.type === 'egress')  return node.config.subtype || '';
-    if (node.type === 'logger')  return node.config.destination || '';
+    if (node.type === 'logger')       return node.config.destination || '';
+    if (node.type === 'huggingface')  return node.config.task        || '';
+    if (node.type === 'yolo')         return node.config.model       || '';
     return '';
   }
 
@@ -2657,15 +2693,17 @@
 
   // ---------- node type picker ----------
 
-  const TYPE_PICKER_ORDER = ['ingress', 'agent', 'script', 'lens', 'egress', 'logger', 'camera'];
+  const TYPE_PICKER_ORDER = ['ingress', 'agent', 'huggingface', 'yolo', 'script', 'lens', 'egress', 'logger', 'camera'];
   const TYPE_PICKER_DESC  = {
-    script:  'custom code',
-    lens:    'view / filter',
-    camera:  'video / image',
-    agent:   'AI agent',
-    ingress: 'data source',
-    egress:  'data sink',
-    logger:  'output / record',
+    script:      'custom code',
+    lens:        'view / filter',
+    camera:      'video / image',
+    agent:       'AI agent',
+    ingress:     'data source',
+    egress:      'data sink',
+    logger:      'output / record',
+    huggingface: 'HF model inference',
+    yolo:        'object detection',
   };
 
   function showTypePicker(wx, wy, onSelect) {
