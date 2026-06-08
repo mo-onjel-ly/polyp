@@ -58,11 +58,14 @@ function loadWindowBounds() {
 }
 
 function saveWindowBounds(win) {
-  if (win.isMinimized() || win.isMaximized() || win.isFullScreen()) return;
+  if (win.isMinimized() || win.isFullScreen()) return;
   try {
     const dir = getConfigDir();
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, WINDOW_FILE), JSON.stringify(win.getBounds(), null, 2), 'utf8');
+    // getNormalBounds() returns the restored size even while maximized,
+    // so we always keep a valid size to restore to.
+    const data = { ...win.getNormalBounds(), maximized: win.isMaximized() };
+    fs.writeFileSync(path.join(dir, WINDOW_FILE), JSON.stringify(data, null, 2), 'utf8');
   } catch (_) {}
 }
 
@@ -94,17 +97,22 @@ function createWindow() {
     },
   });
 
-  // Debounced save on resize / move; immediate save on close
+  // Debounced save on resize / move; immediate save on maximize / close
   let boundsTimer = null;
   const debouncedSave = () => {
     clearTimeout(boundsTimer);
     boundsTimer = setTimeout(() => saveWindowBounds(win), 400);
   };
-  win.on('resize', debouncedSave);
-  win.on('move',   debouncedSave);
-  win.on('close',  () => { clearTimeout(boundsTimer); saveWindowBounds(win); });
+  win.on('resize',     debouncedSave);
+  win.on('move',       debouncedSave);
+  win.on('maximize',   () => saveWindowBounds(win));
+  win.on('unmaximize', () => saveWindowBounds(win));
+  win.on('close',      () => { clearTimeout(boundsTimer); saveWindowBounds(win); });
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Restore maximized state after the window has been shown
+  if (saved?.maximized) win.maximize();
 }
 
 // Minimal application menu — removes the default Electron boilerplate
