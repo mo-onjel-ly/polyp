@@ -1315,7 +1315,7 @@
     huggingface: {
       label: 'HF',
       defaultTitle: 'hugging face',
-      defaultConfig: { model: '', task: 'text-generation', endpoint: '', params: '{}' },
+      defaultConfig: { model: '', task: 'text-generation', runtime: 'inference-api', endpoint: '', params: '{}' },
       fields: [
         { key: 'model', label: 'model id', type: 'text' },
         { key: 'task', label: 'task', type: 'select', options: [
@@ -1325,6 +1325,7 @@
           'image-classification', 'image-to-text', 'image-segmentation', 'object-detection',
           'automatic-speech-recognition', 'audio-classification',
         ]},
+        { key: 'runtime', label: 'runtime', type: 'select', options: ['inference-api', 'transformers.js', 'onnx-web', 'local-python', 'custom-endpoint'] },
         { key: 'endpoint', label: 'endpoint url', type: 'text' },
         { key: 'params', label: 'parameters (json)', type: 'textarea' },
       ],
