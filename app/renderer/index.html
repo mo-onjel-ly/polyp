@@ -2434,18 +2434,26 @@
   }
 
   // ---------- selection ----------
-  // Find all nodes connected to `id` via edges in either direction
-  // (the whole connected component). Returns a Set of node ids.
+  // Find all direct/indirect ancestors and descendants of `id` via directed
+  // edges. Walks forward (descendants) and backward (ancestors) separately so
+  // nodes that are merely connected to a downstream node — but not in the
+  // selected node's lineage — are not included.
   function getFlowMembers(id) {
-    const members = new Set();
-    const stack = [id];
-    while (stack.length) {
-      const n = stack.pop();
-      if (members.has(n)) continue;
-      members.add(n);
+    const members = new Set([id]);
+    // Forward pass: descendants
+    const fwd = [id];
+    while (fwd.length) {
+      const n = fwd.pop();
       state.edges.forEach(e => {
-        if (e.from === n && !members.has(e.to)) stack.push(e.to);
-        if (e.to === n && !members.has(e.from)) stack.push(e.from);
+        if (e.from === n && !members.has(e.to)) { members.add(e.to); fwd.push(e.to); }
+      });
+    }
+    // Backward pass: ancestors
+    const bwd = [id];
+    while (bwd.length) {
+      const n = bwd.pop();
+      state.edges.forEach(e => {
+        if (e.to === n && !members.has(e.from)) { members.add(e.from); bwd.push(e.from); }
       });
     }
     return members;
